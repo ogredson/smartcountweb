@@ -1855,6 +1855,33 @@
             color: var(--success-color);
         }
 
+        .form-info {
+            background: #e0f2fe;
+            border: 1px solid #0288d1;
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+            color: #01579b;
+        }
+
+        .form-info i {
+            color: #0288d1;
+            margin-right: 0.5rem;
+        }
+
+        .form-info code {
+            background: #ffffff;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            border: 1px solid #b3e5fc;
+        }
+
+        .form-info small {
+            color: #0277bd;
+            font-style: italic;
+        }
+
         .btn {
             padding: 0.75rem 1.5rem;
             border: none;
@@ -2490,6 +2517,12 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            <div class="form-info">
+                                                <i class="fas fa-info-circle"></i>
+                                                <strong>Formato esperado do CSV:</strong>
+                                                <code>codigo,descricao,quantidade,localizacao</code>
+                                                <br><small>Exemplo: PROD001,Produto Teste,10,A1-B2</small>
+                                            </div>
                                         </div>
 
                                         <!-- Tipo de Arquivo de Importação Padrão -->
@@ -2996,15 +3029,16 @@
                     return;
                 }
 
-                // Formato CSV: codigo,descricao,quantidade
+                // Formato CSV: codigo,descricao,quantidade,localizacao
                 const products = [];
                 for (let i = 1; i < lines.length; i++) { // Pular cabeçalho
-                    const [codigo, descricao, quantidade] = lines[i].split(',').map(s => s.trim());
+                    const [codigo, descricao, quantidade, localizacao] = lines[i].split(',').map(s => s.trim());
                     if (codigo && descricao) {
                         products.push({
                             codigo,
                             descricao,
-                            quantidade: quantidade ? parseInt(quantidade) || 0 : 0
+                            quantidade: quantidade ? parseInt(quantidade) || 0 : 0,
+                            localizacao: localizacao || ''
                         });
                     }
                 }
@@ -3520,7 +3554,7 @@
              }
 
              let importLimit = 10;
-             let importConfig = { importacao_incluir_localizacao: false };
+             let importConfig = { importacao_incluir_localizacao: true };
              
              if (supabase && currentUser) {
                  const { data: profile } = await supabase
@@ -3564,9 +3598,9 @@
                      const codigo = (cols[0] || '').trim();
                      const descricao = (cols[1] || '').trim();
                      const quantidade_atual = parseInt(cols[2], 10) || 0;
-                     const localizacao = importConfig.importacao_incluir_localizacao ? (cols[3] || '').trim() : '';
+                     const localizacao = (cols[3] || '').trim();
                      
-                     console.log(`Linha ${i}:`, { codigo, descricao, quantidade_atual, localizacao, incluirLocalizacao: importConfig.importacao_incluir_localizacao });
+                     console.log(`Linha ${i}:`, { codigo, descricao, quantidade_atual, localizacao });
                      
                      if (codigo && descricao) {
                          const product = { 
@@ -3574,13 +3608,9 @@
                              descricao, 
                              quantidade_atual, 
                              quantidade_contada: 0, 
-                             is_counted: false 
+                             is_counted: false,
+                             localizacao: localizacao
                          };
-                         
-                         // Incluir localização apenas se configurado
-                         if (importConfig.importacao_incluir_localizacao) {
-                             product.localizacao = localizacao;
-                         }
                          
                          console.log('Produto criado:', product);
                          products.push(product);
@@ -4824,15 +4854,21 @@
                             return;
                         }
 
-                        // Formato CSV: codigo,descricao,quantidade (quantidade será armazenada apenas localmente)
+                        // Formato CSV: codigo,descricao,quantidade,localizacao
                         const products = [];
                         for (let i = 1; i < lines.length; i++) { // Pular cabeçalho
-                            const [codigo, descricao, quantidade] = lines[i].split(',').map(s => s.trim());
+                            const cols = lines[i].split(',').map(s => s.trim());
+                            const codigo = cols[0] || '';
+                            const descricao = cols[1] || '';
+                            const quantidade = cols[2] ? parseInt(cols[2]) || 0 : 0;
+                            const localizacao = cols[3] || '';
+                            
                             if (codigo && descricao) {
                                 products.push({
                                     codigo,
                                     descricao,
-                                    quantidade: quantidade ? parseInt(quantidade) || 0 : 0
+                                    quantidade,
+                                    localizacao
                                 });
                             }
                         }
