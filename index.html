@@ -2767,6 +2767,7 @@
                                             <tr>
                                                 <th data-sort="codigo">Código <i class="fas fa-sort"></i></th>
                                                 <th data-sort="descricao">Descrição <i class="fas fa-sort"></i></th>
+                                                <th data-sort="localizacao">Localização <i class="fas fa-sort"></i></th>
                                                 <th data-sort="quantidade_atual">Qtd. Atual <i class="fas fa-sort"></i></th>
                                                 <th data-sort="quantidade_contada">Qtd. Contada <i class="fas fa-sort"></i></th>
                                                 <th data-sort="scanned_qty">Qtd. Bipada <i class="fas fa-sort"></i></th>
@@ -3018,6 +3019,7 @@
                     session_id: sessionId,
                     codigo: p.codigo,
                     descricao: p.descricao,
+                    localizacao: p.localizacao || null,
                     quantidade_atual: p.quantidade,
                     quantidade_contada: 0,
                     is_counted: false,
@@ -3518,6 +3520,8 @@
              }
 
              let importLimit = 10;
+             let importConfig = { importacao_incluir_localizacao: false };
+             
              if (supabase && currentUser) {
                  const { data: profile } = await supabase
                      .from('user_profiles')
@@ -3525,12 +3529,29 @@
                      .eq('id', currentUser.id)
                      .single();
                  importLimit = profile?.import_limit ?? 10;
+
+                 // Buscar configurações de importação
+                 const { data: config, error: configError } = await supabase
+                     .from('configuracao_estoque')
+                     .select('importacao_incluir_localizacao')
+                     .limit(1)
+                     .single();
+                 
+                 console.log('Configuração carregada:', config, 'Erro:', configError);
+                 
+                 if (config) {
+                     importConfig = config;
+                 }
              }
+
+             console.log('Configuração final:', importConfig);
 
              const reader = new FileReader();
              reader.onload = (e) => {
                  const content = e.target.result;
                  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== '');
+                 
+                 console.log('Linhas do CSV:', lines);
                  
                  if (lines.length <= 1) return showToast('Arquivo CSV sem dados.', 'error');
                  if (lines.length - 1 > importLimit) {
@@ -3543,17 +3564,34 @@
                      const codigo = (cols[0] || '').trim();
                      const descricao = (cols[1] || '').trim();
                      const quantidade_atual = parseInt(cols[2], 10) || 0;
+                     const localizacao = importConfig.importacao_incluir_localizacao ? (cols[3] || '').trim() : '';
+                     
+                     console.log(`Linha ${i}:`, { codigo, descricao, quantidade_atual, localizacao, incluirLocalizacao: importConfig.importacao_incluir_localizacao });
                      
                      if (codigo && descricao) {
-                         products.push({ 
+                         const product = { 
                              codigo, 
                              descricao, 
                              quantidade_atual, 
                              quantidade_contada: 0, 
                              is_counted: false 
-                         });
+                         };
+                         
+                         // Incluir localização apenas se configurado
+                         if (importConfig.importacao_incluir_localizacao) {
+                             product.localizacao = localizacao;
+                         }
+                         
+                         console.log('Produto criado:', product);
+                         products.push(product);
                      }
                  }
+                 
+                 console.log('Produtos finais:', products);
+                
+                // Verificar se algum produto tem localização
+                const produtosComLocalizacao = products.filter(p => p.localizacao);
+                console.log('Produtos com localização:', produtosComLocalizacao.length, produtosComLocalizacao);
                  
                  const importMessage = document.getElementById('import-message-area');
                  if (importMessage) {
@@ -3772,6 +3810,7 @@
                          session_id: newSession.id,
                          codigo: p.codigo,
                          descricao: p.descricao,
+                         localizacao: p.localizacao || null,
                          quantidade_atual: p.quantidade_atual,
                          quantidade_contada: 0,
                          is_counted: false
@@ -4836,9 +4875,13 @@
                              const supabaseProducts = products.map(p => ({
                                  codigo: p.codigo,
                                  descricao: p.descricao,
+                                 localizacao: p.localizacao || null,
                                  session_id: sessionId,
                                  expected_qty: p.quantidade || 0
                              }));
+                             
+                             console.log('Dados que serão enviados ao Supabase:', supabaseProducts);
+                             console.log('Produtos com localização para Supabase:', supabaseProducts.filter(p => p.localizacao));
                              
                              const { data, error } = await supabase
                                  .from('products')
@@ -5208,6 +5251,16 @@
 
          // ===== FUNÇÕES DE CONFIGURAÇÃO =====
 
+         // Função para carregar configurações de contagens
+         async function loadConfiguracaoContagens() {
+             await loadExistingConfigurations();
+         }
+
+         // Função para carregar configurações de exportações
+         async function loadConfiguracaoExportacoes() {
+             await loadExistingConfigurations();
+         }
+
          // Função para carregar configurações existentes
          async function loadExistingConfigurations() {
              try {
@@ -5456,6 +5509,7 @@
                      <tr>
                          <td><strong>${product.codigo}</strong></td>
                          <td>${product.descricao}</td>
+                         <td>${product.localizacao || '-'}</td>
                          <td class="text-center">${product.quantidade_atual || 0}</td>
                          <td class="text-center">${product.quantidade_contada || 0}</td>
                          <td class="text-center">${product.scanned_qty || 0}</td>
