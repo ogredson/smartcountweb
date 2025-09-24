@@ -3317,6 +3317,22 @@
                     return; // Usuário cancelou
                 }
                 
+                // Verificar se o arquivo já foi uploaded antes (PRIMEIRO)
+                const fileName = selectedFile.name;
+                
+                // Verificar se já existe uma sessão com este arquivo (buscar em todas as sessões)
+                const { data: existingSessions, error: checkError } = await supabase
+                    .from('counting_sessions')
+                    .select('id, session_name, arquivo_uploaded, user_id')
+                    .eq('arquivo_uploaded', fileName);
+                
+                if (checkError) {
+                    console.warn('Erro ao verificar arquivos duplicados:', checkError);
+                } else if (existingSessions && existingSessions.length > 0) {
+                    showToast(`Arquivo "${fileName}" já foi importado anteriormente na sessão "${existingSessions[0].session_name}". Não é possível importar o mesmo arquivo novamente.`, 'error');
+                    return;
+                }
+                
                 // Processar arquivo CSV
                 const text = await selectedFile.text();
                 const lines = text.split('\n').filter(line => line.trim());
@@ -3382,6 +3398,32 @@
                 }
 
                 showToast(`${products.length} produtos importados com sucesso para a sessão!`, 'success');
+                
+                // Atualizar nome da sessão combinando com o nome do arquivo e salvar nome do arquivo
+                try {
+                    const nameWithoutExtension = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+                    const currentSessionName = session.session_name || 'Sessão';
+                    const newSessionName = `${currentSessionName} (${nameWithoutExtension})`;
+                    
+                    // Atualizar nome da sessão e arquivo_uploaded no Supabase
+                    const { error: nameUpdateError } = await supabase
+                        .from('counting_sessions')
+                        .update({ 
+                            session_name: newSessionName,
+                            arquivo_uploaded: fileName
+                        })
+                        .eq('id', sessionId);
+                    
+                    if (nameUpdateError) {
+                        console.warn('Erro ao atualizar sessão:', nameUpdateError);
+                    } else {
+                        console.log(`Nome da sessão atualizado para: ${newSessionName}`);
+                        console.log(`Arquivo salvo: ${fileName}`);
+                    }
+                } catch (nameError) {
+                    console.warn('Erro ao processar nome da sessão:', nameError);
+                }
+                
                 
                 // Recarregar dados das sessões
                 if (typeof loadCountingSessions === 'function') {
@@ -5123,13 +5165,8 @@
                             importStatusElement.classList.add('hidden');
                         }
                         
-                        // Sugerir nome da sessão baseado no nome do arquivo (sem extensão)
-                        const sessionNameInput = document.getElementById('sidebar-session-name');
-                        if (sessionNameInput && !sessionNameInput.value.trim()) {
-                            const fileName = file.name;
-                            const nameWithoutExtension = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
-                            sessionNameInput.value = nameWithoutExtension;
-                        }
+                        // Não modificar o campo session-name aqui, pois será combinado na função handleImport
+                        // A lógica de combinação será feita posteriormente
                     }
                 }
 
@@ -5187,16 +5224,42 @@
                              // Primeiro, obter o usuário atual
                              const { data: { user } } = await supabase.auth.getUser();
                              
+                             // Obter nome do arquivo sem extensão
+                             const fileName = file.name;
+                             
+                             // Verificar se o arquivo já foi uploaded antes (buscar em todas as sessões)
+                             const { data: existingSessions, error: checkError } = await supabase
+                                 .from('counting_sessions')
+                                 .select('id, session_name, arquivo_uploaded, user_id')
+                                 .eq('arquivo_uploaded', fileName);
+                             
+                             if (checkError) {
+                                 console.warn('Erro ao verificar arquivos duplicados:', checkError);
+                             } else if (existingSessions && existingSessions.length > 0) {
+                                 showToast(`Arquivo "${fileName}" já foi importado anteriormente na sessão "${existingSessions[0].session_name}". Não é possível importar o mesmo arquivo novamente.`, 'error');
+                                 return;
+                             }
+                             
+                             const nameWithoutExtension = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+                             
+                             // Obter nome da sessão atual do campo
+                             const sessionNameInput = document.getElementById('sidebar-session-name');
+                             const currentSessionName = sessionNameInput?.value?.trim() || 'Importação CSV';
+                             
+                             // Criar nome da sessão SEM combinar com o nome do arquivo (isso será feito no botão de ação)
+                             const finalSessionName = currentSessionName;
+                             
                              // Criar uma sessão de contagem
                              const { data: sessionData, error: sessionError } = await supabase
                                  .from('counting_sessions')
                                  .insert({
                                      user_id: user?.id || crypto.randomUUID(),
-                                     session_name: 'Importação CSV - ' + new Date().toLocaleString(),
+                                     session_name: finalSessionName,
                                      description: 'Sessão criada automaticamente para importação de produtos',
                                      count_type: 'normal',
                                      status: 'waiting',
-                                     total_items: 0
+                                     total_items: 0,
+                                     arquivo_uploaded: fileName
                                  })
                                  .select()
                                  .single();
