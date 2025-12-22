@@ -1,0 +1,19 @@
+Resumo simples do sistema
+
+Este sistema ajuda a organizar a contagem de estoque de produtos de forma prática e clara.
+
+O que ele faz:
+- Permite criar sessões de contagem para separar atividades (por loja, setor ou período).
+- Recebe um arquivo CSV com a lista de produtos e adiciona esses produtos à sessão escolhida.
+- Mostra o andamento da contagem: quantos itens existem ao todo e quantos já foram conferidos.
+- Deixa ajustar a quantidade contada de cada produto durante a conferência.
+- Evita duplicidade: se um arquivo CSV já foi importado em qualquer sessão, o sistema avisa e bloqueia um novo envio do mesmo arquivo.
+- Exibe mensagens claras para confirmar ações e avisar sobre erros.
+
+Como você usa:
+1) Crie ou escolha uma sessão de contagem.
+2) Envie o arquivo CSV com os produtos.
+3) Confira e atualize as quantidades conforme realiza a contagem.
+4) Acompanhe o progresso e finalize quando terminar.
+
+Em resumo, o sistema facilita importar produtos, fazer a conferência organizada e acompanhar o progresso, evitando problemas com arquivos repetidos.

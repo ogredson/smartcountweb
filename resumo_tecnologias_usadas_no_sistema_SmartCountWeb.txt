@@ -1,0 +1,39 @@
+         
+**Visão Geral**
+- Projeto estático com uma única página `index.html` que concentra HTML, CSS e JavaScript.
+- Sem frameworks de front-end (não há React/Vue/Angular, nem `package.json`); carregado direto no navegador.
+
+**Front‑end**
+- HTML5/CSS3 com estilos escritos à mão dentro de `index.html`.
+- Ícones via CDN do Font Awesome 6: `c:\_working\Projetos\smartcountweb\index.html:7`.
+- Tema claro/escuro usando `data-theme` e `localStorage`: `c:\_working\Projetos\smartcountweb\index.html:46-53`, `c:\_working\Projetos\smartcountweb\index.html:3535-3545`.
+- Canvas para gráfico (sem biblioteca de chart explícita): `c:\_working\Projetos\smartcountweb\index.html:2585-2586`.
+
+**Serviços/Backend (Supabase)**
+- SDK do Supabase v2 via CDN: `c:\_working\Projetos\smartcountweb\index.html:8`.
+- Inicialização do cliente com URL e chave pública (anon): `c:\_working\Projetos\smartcountweb\index.html:3154-3161`.
+- Autenticação por e‑mail/senha (`signInWithPassword`, `signUp`, `signOut`): `c:\_working\Projetos\smartcountweb\index.html:3708-3721`, `c:\_working\Projetos\smartcountweb\index.html:3764-3777`, `c:\_working\Projetos\smartcountweb\index.html:3790-3794`.
+- Acesso a tabelas Postgres via Supabase:
+  - `user_profiles` para perfil/autorização: `c:\_working\Projetos\smartcountweb\index.html:3712-3717`, `c:\_working\Projetos\smartcountweb\index.html:3195-3200`.
+  - `session_logs` para auditoria de login/logout: `c:\_working\Projetos\smartcountweb\index.html:3724-3725`, `c:\_working\Projetos\smartcountweb\index.html:3791-3793`.
+  - `counting_sessions` para sessões de contagem: leitura/criação/atualização em `c:\_working\Projetos\smartcountweb\index.html:3996-4007`, `c:\_working\Projetos\smartcountweb\index.html:408-421` (alteração de status), `c:\_working\Projetos\smartcountweb\index.html:4183-4199` (inserção).
+  - `products` para itens: importação e inserção em `c:\_working\Projetos\smartcountweb\index.html:3376-3381`, leitura em `c:\_working\Projetos\smartcountweb\index.html:4040-4053`.
+  - `configuracao_estoque` para parâmetros de importação: `c:\_working\Projetos\smartcountweb\index.html:3911-3922`.
+- RPC (`admin_create_session`) opcional para criar sessão via função SQL: `c:\_working\Projetos\smartcountweb\index.html:4130-4141`.
+
+**Funcionalidades no Navegador**
+- Leitura de CSV com `FileReader` e parsing manual: `c:\_working\Projetos\smartcountweb\index.html:3927-3981` e fluxo de upload por diálogo de arquivo: `c:\_working\Projetos\smartcountweb\index.html:3290-3315`.
+- Verificações de duplicidade de arquivo por nome (`arquivo_uploaded`): `c:\_working\Projetos\smartcountweb\index.html:3320-3334`.
+- Auto‑sync periódico com o backend e sync ao voltar foco/visibilidade: `c:\_working\Projetos\smartcountweb\index.html:4064-4071`, `c:\_working\Projetos\smartcountweb\index.html:4080-4091`.
+- Sistema de toasts e estados de carregamento/empty built‑in: `c:\_working\Projetos\smartcountweb\index.html:3813-3853`.
+
+**Implantação/Build**
+- Sem bundler ou pipeline; página estática servida diretamente (arquivos no diretório do projeto).
+- Arquivo `resumo.txt` documenta o fluxo operacional e `teste_produtos.csv` serve de exemplo de importação.
+
+Se quiser, posso listar bibliotecas adicionais caso você planeje incorporar gráficos (por exemplo, Chart.js) ou tabelas com paginação avançada; no estado atual, tudo é feito com JavaScript puro.
+
+toolName: view_folder
+c:\_working\Projetos\smartcountweb
+filePath: c:\_working\Projetos\smartcountweb\index.html
+filePath: c:\_working\Projetos\smartcountweb\resumo.txt
