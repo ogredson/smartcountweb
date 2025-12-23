@@ -2326,13 +2326,16 @@
 
                 <div class="auth-tabs">
                     <div class="auth-tab active" id="login-tab">Login</div>
-                    <div class="auth-tab" id="register-tab">Cadastro</div>
                 </div>
 
                 <div id="login-form">
                     <div class="form-group">
-                        <label class="form-label" for="email">E-mail</label>
-                        <input type="email" id="email" class="form-input" placeholder="Seu e-mail" />
+                        <label class="form-label" for="empresa-email">E-mail da Empresa</label>
+                        <input type="email" id="empresa-email" class="form-input" placeholder="E-mail cadastrado da empresa" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="usuario-email">E-mail do Usuário</label>
+                        <input type="email" id="usuario-email" class="form-input" placeholder="Seu e-mail de usuário" />
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="password">Senha</label>
@@ -2340,24 +2343,6 @@
                     </div>
                     <button id="login-btn" class="btn btn-primary" style="width: 100%;">
                         <i class="fas fa-sign-in-alt"></i> Entrar
-                    </button>
-                </div>
-
-                <div id="register-form" class="hidden">
-                    <div class="form-group">
-                        <label class="form-label" for="reg-name">Nome Completo</label>
-                        <input type="text" id="reg-name" class="form-input" placeholder="Seu nome completo" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="reg-email">E-mail</label>
-                        <input type="email" id="reg-email" class="form-input" placeholder="Seu e-mail" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="reg-password">Senha</label>
-                        <input type="password" id="reg-password" class="form-input" placeholder="Sua senha (mín. 6 caracteres)" />
-                    </div>
-                    <button id="register-btn" class="btn btn-primary" style="width: 100%;">
-                        <i class="fas fa-user-plus"></i> Cadastrar
                     </button>
                 </div>
 
@@ -3155,16 +3140,16 @@
         const supabaseUrl = 'https://dkpqjtbrmxozynpxdurv.supabase.co';
         const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrcHFqdGJybXhvenlucHhkdXJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2NjIyNDUsImV4cCI6MjA3MjIzODI0NX0.EVXv7iH70zDNb_vrILJMVb2ccBWFWA0sAU4CoPSRh54';
         
-        const supabase = (window.supabase && window.supabase.createClient)
+        const supabaseClient = (window.supabase && window.supabase.createClient)
             ? window.supabase.createClient(supabaseUrl, supabaseAnonKey)
             : null;
 
         // App state
         let currentUser = null;
+        let currentEmpresa = null;
         let currentSession = null;
         let products = [];
         let scans = [];
-        let userProfile = null;
         let syncInterval = null;
 
         // DOM elements
@@ -3181,43 +3166,12 @@
 
         async function initApp() {
             setupEventListeners();
-            
-            if (!supabase) {
+            if (!supabaseClient) {
                 showAuthSection();
                 showToast('Falha ao carregar o SDK do Supabase', 'error');
                 return;
             }
-
-            try {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    const user = session.user;
-                    const { data: profile } = await supabase
-                        .from('user_profiles')
-                        .select('*')
-                        .eq('id', user.id)
-                        .single();
-
-                    if (profile && profile.authorized) {
-                        currentUser = user;
-                        userProfile = profile;
-                        showMainApp();
-                        updateUserInfo();
-                        await loadUserData();
-                        startAutoSync();
-                        setupVisibilitySync();
-                    } else {
-                        await supabase.auth.signOut();
-                        showAuthSection();
-                    }
-                } else {
-                    showAuthSection();
-                }
-            } catch (err) {
-                console.error(err);
-                showAuthSection();
-                showToast('Não foi possível inicializar a sessão', 'error');
-            }
+            showAuthSection();
         }
 
         // Função uploadSessionFile no escopo global
@@ -3256,10 +3210,10 @@
 
                          if (!confirm(`Alterar status para "${statusText}"?`)) return;
 
-                         const { error } = await supabase
-                             .from('counting_sessions')
-                             .update({ status: newStatus })
-                             .eq('id', sessionId);
+                const { error } = await supabaseClient
+                    .from('counting_sessions')
+                    .update({ status: newStatus })
+                    .eq('id', sessionId);
 
                          if (error) throw error;
 
@@ -3321,10 +3275,11 @@
                 const fileName = selectedFile.name;
                 
                 // Verificar se já existe uma sessão com este arquivo (buscar em todas as sessões)
-                const { data: existingSessions, error: checkError } = await supabase
+                const { data: existingSessions, error: checkError } = await supabaseClient
                     .from('counting_sessions')
-                    .select('id, session_name, arquivo_uploaded, user_id')
-                    .eq('arquivo_uploaded', fileName);
+                    .select('id, session_name, arquivo_uploaded, id_usuario, id_empresa')
+                    .eq('arquivo_uploaded', fileName)
+                    .eq('id_empresa', currentEmpresa.id);
                 
                 if (checkError) {
                     console.warn('Erro ao verificar arquivos duplicados:', checkError);
@@ -3374,7 +3329,7 @@
                 }));
 
                 // Inserir produtos no Supabase
-                const { data, error } = await supabase
+                const { data, error } = await supabaseClient
                     .from('products')
                     .insert(productsToInsert)
                     .select();
@@ -3386,7 +3341,7 @@
                 }
 
                 // Atualizar total de itens na sessão
-                const { error: updateError } = await supabase
+                const { error: updateError } = await supabaseClient
                     .from('counting_sessions')
                     .update({ 
                         total_items: (session.total_items || 0) + products.length
@@ -3406,7 +3361,7 @@
                     const newSessionName = `${currentSessionName} (${nameWithoutExtension})`;
                     
                     // Atualizar nome da sessão e arquivo_uploaded no Supabase
-                    const { error: nameUpdateError } = await supabase
+                    const { error: nameUpdateError } = await supabaseClient
                         .from('counting_sessions')
                         .update({ 
                             session_name: newSessionName,
@@ -3606,21 +3561,15 @@
 
          function switchAuthTab(tab) {
              const loginTab = document.getElementById('login-tab');
-             const registerTab = document.getElementById('register-tab');
              const loginForm = document.getElementById('login-form');
-             const registerForm = document.getElementById('register-form');
              const authMessage = document.getElementById('auth-message');
 
              if (tab === 'login') {
                  loginTab?.classList.add('active');
-                 registerTab?.classList.remove('active');
                  loginForm?.classList.remove('hidden');
-                 registerForm?.classList.add('hidden');
              } else {
-                 registerTab?.classList.add('active');
-                 loginTab?.classList.remove('active');
-                 registerForm?.classList.remove('hidden');
-                 loginForm?.classList.add('hidden');
+                 loginTab?.classList.add('active');
+                 loginForm?.classList.remove('hidden');
              }
              authMessage?.classList.add('hidden');
          }
@@ -3664,13 +3613,12 @@
          }
 
          function updateUserInfo() {
-            if (currentUser && userProfile) {
+            if (currentUser && currentEmpresa) {
                 const userInitials = document.getElementById('user-initials');
                 const userName = document.getElementById('user-name');
                 const customerName = document.getElementById('customer-name');
-                
                 if (userInitials) {
-                    const initials = (userProfile.name || userProfile.Costumer || 'Usuario')
+                    const initials = (currentUser.nome || 'Usuario')
                         .split(' ')
                         .map(n => n[0])
                         .join('')
@@ -3678,124 +3626,82 @@
                         .substring(0, 2);
                     userInitials.textContent = initials;
                 }
-                
                 if (userName) {
-                    userName.textContent = userProfile.name || userProfile.Costumer || 'Usuário';
+                    userName.textContent = currentUser.nome || 'Usuário';
                 }
-                
                 if (customerName) {
-                    customerName.textContent = userProfile.costumer || userProfile.Costumer || 'Cliente';
+                    customerName.textContent = currentEmpresa.nome || 'Cliente';
                 }
             }
         }
 
-         async function handleLogin() {
-             if (!supabase) return showToast('SDK do Supabase indisponível.', 'error');
-             
-             const email = document.getElementById('email')?.value.trim();
-             const password = document.getElementById('password')?.value;
-             
-             if (!email || !password) {
-                 return showAuthMessage('Por favor, preencha todos os campos.', 'error');
-             }
+        async function handleLogin() {
+            if (!supabaseClient) return showToast('SDK do Supabase indisponível.', 'error');
+            const empresaEmail = document.getElementById('empresa-email')?.value.trim();
+            const usuarioEmail = document.getElementById('usuario-email')?.value.trim();
+            const password = document.getElementById('password')?.value;
+            if (!empresaEmail || !usuarioEmail || !password) {
+                return showAuthMessage('Por favor, informe empresa, usuário e senha.', 'error');
+            }
+            const loginBtn = document.getElementById('login-btn');
+            if (loginBtn) {
+                loginBtn.innerHTML = '<div class="loading"></div> Entrando...';
+                loginBtn.disabled = true;
+            }
+            try {
+                const { data: empresa, error: empresaError } = await supabaseClient
+                    .from('empresas')
+                    .select('*')
+                    .eq('email', empresaEmail)
+                    .single();
+                if (empresaError || !empresa) {
+                    throw new Error('Empresa não encontrada.');
+                }
+                if (empresa.ativo === false) {
+                    throw new Error('Empresa inativa.');
+                }
+                const { data: usuario, error: usuarioError } = await supabaseClient
+                    .from('usuarios')
+                    .select('*')
+                    .eq('email', usuarioEmail)
+                    .eq('id_empresa', empresa.id)
+                    .single();
+                if (usuarioError || !usuario) {
+                    throw new Error('Usuário não encontrado para a empresa.');
+                }
+                if (usuario.ativo === false) {
+                    throw new Error('Usuário inativo.');
+                }
+                const senhaInformada = (password || '').trim();
+                const senhaBanco = (usuario.senha || '').trim();
+                if (senhaBanco !== senhaInformada) {
+                    throw new Error('Senha inválida.');
+                }
+                currentEmpresa = empresa;
+                currentUser = usuario;
+                showMainApp();
+                updateUserInfo();
+                await loadUserData();
+                startAutoSync();
+                setupVisibilitySync();
+            } catch (err) {
+                console.error(err);
+                showAuthMessage(err.message || 'Erro inesperado. Tente novamente.', 'error');
+            } finally {
+                if (loginBtn) {
+                    loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar';
+                    loginBtn.disabled = false;
+                }
+            }
+        }
 
-             const loginBtn = document.getElementById('login-btn');
-             if (loginBtn) {
-                 loginBtn.innerHTML = '<div class="loading"></div> Entrando...';
-                 loginBtn.disabled = true;
-             }
-
-             try {
-                 const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-                 if (error) throw error;
-
-                 const { data: profile, error: profileError } = await supabase
-                     .from('user_profiles')
-                     .select('*')
-                     .eq('id', data.user.id)
-                     .single();
-
-                 if (profileError || !profile || !profile.authorized) {
-                     showAuthMessage('Usuário não autorizado. Entre em contato com o administrador.', 'error');
-                     await supabase.auth.signOut();
-                     return;
-                 }
-
-                 await supabase.from('session_logs').insert([{ user_id: data.user.id, action: 'login' }]);
-                 currentUser = data.user;
-                 userProfile = profile;
-                 showMainApp();
-                 updateUserInfo();
-                 await loadUserData();
-                 startAutoSync();
-                 setupVisibilitySync();
-             } catch (err) {
-                 console.error(err);
-                 showAuthMessage(err.message || 'Erro inesperado. Tente novamente.', 'error');
-             } finally {
-                 if (loginBtn) {
-                     loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar';
-                     loginBtn.disabled = false;
-                 }
-             }
-         }
-
-         async function handleRegister() {
-             if (!supabase) return showToast('SDK do Supabase indisponível.', 'error');
-             
-             const name = document.getElementById('reg-name')?.value.trim();
-             const email = document.getElementById('reg-email')?.value.trim();
-             const password = document.getElementById('reg-password')?.value;
-             
-             if (!name || !email || !password) {
-                 return showAuthMessage('Por favor, preencha todos os campos.', 'error');
-             }
-             if (password.length < 6) {
-                 return showAuthMessage('A senha deve ter pelo menos 6 caracteres.', 'error');
-             }
-
-             const registerBtn = document.getElementById('register-btn');
-             if (registerBtn) {
-                 registerBtn.innerHTML = '<div class="loading"></div> Cadastrando...';
-                 registerBtn.disabled = true;
-             }
-
-             try {
-                 const { data, error } = await supabase.auth.signUp({
-                     email,
-                     password,
-                     options: { data: { name } },
-                 });
-                 if (error) throw error;
-
-                 const userId = data?.user?.id;
-                 if (userId) {
-                     const { error: profileError } = await supabase.from('user_profiles').insert([
-                         { id: userId, name, authorized: false, import_limit: 10 },
-                     ]);
-                     if (profileError) throw profileError;
-                 }
-                 showAuthMessage('Cadastro realizado! Aguarde a autorização de um administrador.', 'success');
-             } catch (err) {
-                 console.error(err);
-                 showAuthMessage(err.message || 'Erro inesperado. Tente novamente.', 'error');
-             } finally {
-                 if (registerBtn) {
-                     registerBtn.innerHTML = '<i class="fas fa-user-plus"></i> Cadastrar';
-                     registerBtn.disabled = false;
-                 }
-             }
-         }
+         async function handleRegister() {}
 
          async function handleLogout() {
-             if (currentUser && supabase) {
-                 await supabase.from('session_logs').insert([{ user_id: currentUser.id, action: 'logout' }]);
-                 await supabase.auth.signOut();
-             }
              stopAutoSync();
              currentUser = null;
+             currentEmpresa = null;
              currentSession = null;
-             userProfile = null;
              products = [];
              scans = [];
              showAuthSection();
@@ -3897,26 +3803,24 @@
                  return showToast('O arquivo deve ser do tipo CSV.', 'error');
              }
 
-             let importLimit = 10;
+             let importLimit = 1000;
              let importConfig = { importacao_incluir_localizacao: true };
-             
-             if (supabase && currentUser) {
-                 const { data: profile } = await supabase
-                     .from('user_profiles')
-                     .select('import_limit')
-                     .eq('id', currentUser.id)
-                     .single();
-                 importLimit = profile?.import_limit ?? 10;
-
-                 // Buscar configurações de importação
-                 const { data: config, error: configError } = await supabase
-                     .from('configuracao_estoque')
-                     .select('importacao_incluir_localizacao')
-                     .limit(1)
-                     .single();
-                 
-                 console.log('Configuração carregada:', config, 'Erro:', configError);
-                 
+            if (supabaseClient && currentEmpresa) {
+                const { data: empresaConfig } = await supabaseClient
+                    .from('empresas')
+                    .select('import_limit')
+                    .eq('id', currentEmpresa.id)
+                    .single();
+                importLimit = empresaConfig?.import_limit ?? 1000;
+                const { data: config, error: configError } = await supabaseClient
+                    .from('configuracao_estoque')
+                    .select('importacao_incluir_localizacao')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .limit(1)
+                    .single();
+                 if (configError) {
+                     console.log('Erro ao carregar configuração:', configError);
+                 }
                  if (config) {
                      importConfig = config;
                  }
@@ -3991,12 +3895,13 @@
              let counted = 0;
              let scanned = 0;
 
-             if (supabase && currentUser) {
-                 // Buscar todas as sessões ativas
-                 const { data: activeSessions } = await supabase
-                     .from('counting_sessions')
-                     .select('*')
-                     .eq('status', 'active');
+            if (supabaseClient && currentUser && currentEmpresa) {
+                const { data: activeSessions } = await supabaseClient
+                    .from('counting_sessions')
+                    .select('*')
+                    .eq('status', 'active')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .eq('id_usuario', currentUser.id);
 
                  if (activeSessions && activeSessions.length > 0) {
                      // Somar dados de todas as sessões ativas
@@ -4023,24 +3928,23 @@
          }
 
          async function loadUserData() {
-             if (!supabase || !currentUser) return;
-             
-             // Load active sessions
-             const { data: activeSessions } = await supabase
-                 .from('counting_sessions')
-                 .select('*')
-                 .eq('user_id', currentUser.id)
-                 .eq('status', 'active')
-                 .order('created_at', { ascending: false })
-                 .limit(1);
+            if (!supabaseClient || !currentUser || !currentEmpresa) return;
+            const { data: activeSessions } = await supabaseClient
+                .from('counting_sessions')
+                .select('*')
+                .eq('id_usuario', currentUser.id)
+                .eq('id_empresa', currentEmpresa.id)
+                .eq('status', 'active')
+                .order('created_at', { ascending: false })
+                .limit(1);
 
              if (activeSessions && activeSessions.length > 0) {
                  currentSession = activeSessions[0];
                  
-                 const { data: sessionProducts } = await supabase
-                     .from('products')
-                     .select('*')
-                     .eq('session_id', currentSession.id);
+                const { data: sessionProducts } = await supabaseClient
+                    .from('products')
+                    .select('*')
+                    .eq('session_id', currentSession.id);
 
                  if (sessionProducts && sessionProducts.length > 0) {
                      products = sessionProducts.map(p => ({
@@ -4057,16 +3961,16 @@
          }
 
          async function syncData() {
-             if (!currentUser || !supabase) return;
-             await loadUserData();
+            if (!currentUser || !supabaseClient) return;
+            await loadUserData();
          }
 
          function startAutoSync() {
              if (syncInterval) clearInterval(syncInterval);
              syncInterval = setInterval(async () => {
-                 if (currentUser && supabase) {
-                     await syncData();
-                 }
+                if (currentUser && supabaseClient) {
+                    await syncData();
+                }
              }, 30000);
          }
 
@@ -4079,107 +3983,52 @@
 
          function setupVisibilitySync() {
              document.addEventListener('visibilitychange', async () => {
-                 if (!document.hidden && currentUser && supabase) {
-                     await syncData();
-                 }
+                if (!document.hidden && currentUser && supabaseClient) {
+                    await syncData();
+                }
              });
 
              window.addEventListener('focus', async () => {
-                 if (currentUser && supabase) {
-                     await syncData();
-                 }
+                if (currentUser && supabaseClient) {
+                    await syncData();
+                }
              });
          }
 
          // Additional functions from original app
          async function startCountingSession() {
-             if (!supabase || !currentUser) return showToast('Usuário não autenticado.', 'error');
-             
-             const countType = document.getElementById('count-type')?.value;
-             const deviceId = document.getElementById('device-id')?.value.trim();
-             
-             if (!deviceId) return showToast('Por favor, informe o ID do dispositivo.', 'error');
-             if (countType === 'completa' && products.length === 0) {
-                 return showToast('Importe um arquivo CSV antes de iniciar a contagem completa.', 'error');
-             }
-
+            if (!supabaseClient || !currentUser || !currentEmpresa) return showToast('Usuário não autenticado.', 'error');
+             const countType = document.getElementById('count-type')?.value || 'normal';
              try {
-                 const { data: existingSession } = await supabase
-                     .from('counting_sessions')
-                     .select('*')
-                     .eq('user_id', currentUser.id)
-                     .eq('device_id', deviceId)
-                     .eq('status', 'active')
-                     .single();
-
+                const { data: existingSession } = await supabaseClient
+                    .from('counting_sessions')
+                    .select('*')
+                    .eq('id_usuario', currentUser.id)
+                    .eq('id_empresa', currentEmpresa.id)
+                    .eq('status', 'active')
+                    .single();
                  if (existingSession) {
-                     return showToast('Já existe uma sessão ativa para este dispositivo.', 'error');
+                     return showToast('Já existe uma sessão ativa para este usuário na empresa.', 'error');
                  }
-
                  const sessionData = {
-                     user_id: currentUser.id,
-                     device_id: deviceId,
+                     id_usuario: currentUser.id,
+                     id_empresa: currentEmpresa.id,
                      session_name: `Contagem ${countType} - ${new Date().toLocaleDateString('pt-BR')}`,
                      count_type: countType,
-                     total_items: countType === 'completa' ? products.length : 0,
+                     total_items: countType === 'normal' ? products.length : 0,
                      counted_items: 0,
                      scanned_items: 0,
-                     status: 'active'
+                     status: 'waiting'
                  };
-
-                 // Tentar criar sessão usando função RPC personalizada primeiro
-                 const { data: rpcSession, error: rpcError } = await supabase
-                     .rpc('admin_create_session', {
-                         p_user_id: finalUserId,
-                         p_session_name: sessionName,
-                         p_description: description || '',
-                         p_count_type: countType,
-                         p_total_items: importedProductsCount || 0,
-                         p_counted_items: 0,
-                         p_scanned_items: 0,
-                         p_status: 'waiting'
-                     });
-                 
-                 let newSession, error;
-                 
-                 if (rpcError) {
-                     // Se RPC falhar, tentar inserção direta
-                     const result = await supabase
-                         .from('counting_sessions')
-                         .insert([sessionData])
-                         .select()
-                         .single();
-                     
-                     newSession = result.data;
-                     error = result.error;
-                     
-                     // Se ainda falhar devido ao RLS, criar para o usuário atual
-                     if (error && error.code === '42501') {
-                         sessionData.user_id = user.id;
-                         
-                         const fallbackResult = await supabase
-                             .from('counting_sessions')
-                             .insert([sessionData])
-                             .select()
-                             .single();
-                         
-                         newSession = fallbackResult.data;
-                         error = fallbackResult.error;
-                         
-                         if (!error && finalUserId !== user.id) {
-                             showToast('Sessão criada para você devido às políticas de segurança do banco de dados', 'warning');
-                         }
-                     }
-                 } else {
-                     newSession = rpcSession;
-                     error = null;
-                 }
-
-                 if (error) throw error;
-
+                const result = await supabaseClient
+                    .from('counting_sessions')
+                    .insert([sessionData])
+                    .select()
+                    .single();
+                 if (result.error) throw result.error;
+                 const newSession = result.data;
                  currentSession = newSession;
-
-                 if (countType === 'completa' && products.length > 0) {
+                 if (products.length > 0) {
                      const productsToInsert = products.map(p => ({
                          session_id: newSession.id,
                          codigo: p.codigo,
@@ -4189,36 +4038,28 @@
                          quantidade_contada: 0,
                          is_counted: false
                      }));
-
-                     const { error: productsError } = await supabase
-                         .from('products')
-                         .insert(productsToInsert);
-
+                    const { error: productsError } = await supabaseClient
+                        .from('products')
+                        .insert(productsToInsert);
                      if (productsError) throw productsError;
                  }
-
                  showToast('Sessão de contagem iniciada com sucesso!', 'success');
                  await updateDashboardStats();
-                 navigateToPage('bipagem');
+                 navigateToPage('contagem');
              } catch (err) {
                  console.error(err);
                  showToast('Erro ao iniciar sessão: ' + err.message, 'error');
              }
          }
 
-         async function endCountingSession() {
-             if (!currentSession || !supabase) return showToast('Nenhuma sessão ativa encontrada.', 'error');
-             
-             const deviceId = document.getElementById('device-id')?.value.trim();
-             if (!deviceId || deviceId !== currentSession.device_id) {
-                 return showToast('ID do dispositivo não confere com a sessão ativa.', 'error');
-             }
+        async function endCountingSession() {
+            if (!currentSession || !supabaseClient) return showToast('Nenhuma sessão ativa encontrada.', 'error');
 
              try {
-                 const { error } = await supabase
-                     .from('counting_sessions')
-                     .update({ status: 'completed', ended_at: new Date().toISOString() })
-                     .eq('id', currentSession.id);
+                const { error } = await supabaseClient
+                    .from('counting_sessions')
+                    .update({ status: 'completed', ended_at: new Date().toISOString() })
+                    .eq('id', currentSession.id);
 
                  if (error) throw error;
 
@@ -4249,25 +4090,25 @@
              try {
                  let product = null;
                  
-                 if (currentSession.count_type === 'completa') {
-                     const { data: foundProduct } = await supabase
-                         .from('products')
-                         .select('*')
-                         .eq('session_id', currentSession.id)
-                         .eq('codigo', barcode)
-                         .single();
+                if (currentSession.count_type === 'normal') {
+                const { data: foundProduct } = await supabaseClient
+                        .from('products')
+                        .select('*')
+                        .eq('session_id', currentSession.id)
+                        .eq('codigo', barcode)
+                        .single();
                      
                      if (foundProduct) {
                          product = foundProduct;
                          const newQuantity = product.quantidade_contada + quantity;
                          
-                         const { error } = await supabase
-                             .from('products')
-                             .update({ 
-                                 quantidade_contada: newQuantity, 
-                                 is_counted: true 
-                             })
-                             .eq('id', product.id);
+                        const { error } = await supabaseClient
+                            .from('products')
+                            .update({ 
+                                quantidade_contada: newQuantity, 
+                                is_counted: true 
+                            })
+                            .eq('id', product.id);
                          
                          if (error) {
                             console.error('Erro detalhado do Supabase:', error);
@@ -4300,9 +4141,9 @@
                      scanned_at: new Date().toISOString()
                  };
 
-                 const { error: scanError } = await supabase
-                     .from('scans')
-                     .insert([scanData]);
+                const { error: scanError } = await supabaseClient
+                    .from('scans')
+                    .insert([scanData]);
 
                  if (scanError) throw scanError;
 
@@ -4310,13 +4151,13 @@
                  const countedItems = products.filter(p => p.is_counted).length;
                  const scannedItems = currentSession.scanned_items + 1;
                  
-                 const { error: sessionError } = await supabase
-                     .from('counting_sessions')
-                     .update({ 
-                         counted_items: countedItems,
-                         scanned_items: scannedItems
-                     })
-                     .eq('id', currentSession.id);
+                const { error: sessionError } = await supabaseClient
+                    .from('counting_sessions')
+                    .update({ 
+                        counted_items: countedItems,
+                        scanned_items: scannedItems
+                    })
+                    .eq('id', currentSession.id);
 
                  if (sessionError) throw sessionError;
 
@@ -4375,23 +4216,25 @@
              if (!currentSession) return showToast('Nenhuma sessão ativa para exportar.', 'error');
 
              try {
-                 let data = [];
-                 let filename = `contagem_${currentSession.device_id}_${new Date().toISOString().split('T')[0]}`;
+                let data = [];
+                const emp = (currentEmpresa?.nome || 'empresa').replace(/\s+/g, '_');
+                const usr = (currentUser?.nome || 'usuario').replace(/\s+/g, '_');
+                let filename = `contagem_${emp}_${usr}_${new Date().toISOString().split('T')[0]}`;
 
                  if (type === 'grouped') {
-                     const { data: products } = await supabase
-                         .from('products')
-                         .select('*')
-                         .eq('session_id', currentSession.id);
+                    const { data: products } = await supabaseClient
+                        .from('products')
+                        .select('*')
+                        .eq('session_id', currentSession.id);
 
                      data = products || [];
                      filename += '_agrupado';
                  } else {
-                     const { data: scans } = await supabase
-                         .from('scans')
-                         .select('*')
-                         .eq('session_id', currentSession.id)
-                         .order('scanned_at', { ascending: true });
+                    const { data: scans } = await supabaseClient
+                        .from('scans')
+                        .select('*')
+                        .eq('session_id', currentSession.id)
+                        .order('scanned_at', { ascending: true });
 
                      data = scans || [];
                      filename += '_detalhado';
@@ -4446,15 +4289,16 @@
          }
 
          async function loadSessionHistory() {
-             if (!supabase || !currentUser) return;
+            if (!supabaseClient || !currentUser) return;
 
              try {
-                 const { data: sessions } = await supabase
-                     .from('counting_sessions')
-                     .select('*')
-                     .eq('user_id', currentUser.id)
-                     .order('created_at', { ascending: false })
-                     .limit(50);
+                const { data: sessions } = await supabaseClient
+                    .from('counting_sessions')
+                    .select('*')
+                    .eq('id_usuario', currentUser.id)
+                    .eq('id_empresa', currentEmpresa.id)
+                    .order('created_at', { ascending: false })
+                    .limit(50);
 
                  const historyList = document.getElementById('history-list');
                  if (!historyList) return;
@@ -4473,11 +4317,11 @@
                  const historyHtml = sessions.map(session => `
                      <div class="history-item">
                          <div class="history-info">
-                             <div class="history-device">
-                                 <i class="fas fa-mobile-alt"></i>
-                                 ${session.device_id}
-                             </div>
-                             <div class="history-type">${session.count_type === 'completa' ? 'Contagem Completa' : 'Contagem Avulsa'}</div>
+                            <div class="history-device">
+                                <i class="fas fa-folder"></i>
+                                ${session.session_name || 'Sessão'}
+                            </div>
+                             <div class="history-type">${session.count_type === 'normal' ? 'Contagem com Arquivo' : 'Contagem Avulsa'}</div>
                              <div class="history-date">${new Date(session.created_at).toLocaleString()}</div>
                          </div>
                          <div class="history-stats">
@@ -4575,12 +4419,12 @@
 
              tableBody.innerHTML = paginatedSessions.map(session => {
                     const progress = session.total_items > 0 ? Math.round((session.counted_items / session.total_items) * 100) : 0;
-                    const userName = session.user_profiles?.name || 'N/A';
-                    const sessionName = session.session_name || session.device_id || 'N/A';
+                    const userName = currentUser?.nome || 'N/A';
+                    const sessionName = session.session_name || 'N/A';
                     const createdDate = new Date(session.created_at).toLocaleDateString('pt-BR');
                     const createdTime = new Date(session.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-                 return `
+                return `
                      <tr>
                          <td>${session.id}</td>
                          <td>${sessionName}</td>
@@ -4686,11 +4530,11 @@
 
          // Função loadCountingSessions no escopo global
          async function loadCountingSessions() {
-             if (!supabase) {
-                 console.error('Supabase not initialized');
-                 showToast('Erro: Supabase não inicializado', 'error');
-                 return;
-             }
+            if (!supabaseClient) {
+                console.error('Supabase not initialized');
+                showToast('Erro: Supabase não inicializado', 'error');
+                return;
+            }
 
              const loadingState = document.getElementById('sessions-loading');
              const emptyState = document.getElementById('sessions-empty');
@@ -4702,84 +4546,15 @@
              tableContainer?.classList.add('hidden');
 
              try {
-                  
-                  // Estratégia 1: Tentar buscar todas as sessões diretamente
-                  let { data: sessions, error } = await supabase
-                      .from('counting_sessions')
-                      .select('*')
-                      .order('created_at', { ascending: false });
-                  
-                  // Estratégia 2: Se RLS está limitando, tentar com diferentes abordagens
-                  if (sessions && sessions.length > 0) {
-                      const uniqueUsers = [...new Set(sessions.map(s => s.user_id))];
-                      if (uniqueUsers.length === 1 && uniqueUsers[0] === currentUser?.id) {
-                          
-                          // Tentar buscar todos os usuários primeiro
-                          const { data: allUsers } = await supabase
-                              .from('user_profiles')
-                              .select('id, name');
-                          
-                          if (allUsers && allUsers.length > 0) {
-                              // Tentar buscar sessões para cada usuário
-                              const allSessions = [];
-                              for (const user of allUsers) {
-                                  try {
-                                      const { data: userSessions } = await supabase
-                                          .from('counting_sessions')
-                                          .select('*')
-                                          .eq('user_id', user.id)
-                                          .order('created_at', { ascending: false });
-                                      
-                                      if (userSessions) {
-                                          allSessions.push(...userSessions);
-                                      }
-                                  } catch (userError) {
-                                      // Erro silencioso ao buscar sessões do usuário
-                                  }
-                              }
-                              
-                              if (allSessions.length > sessions.length) {
-                                  sessions = allSessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                              }
-                          }
-                      }
-                  }
-                  
-
-                  
-                  // Verificar se RLS está limitando os resultados
-                  if (sessions && sessions.length > 0) {
-                      const uniqueUsers = [...new Set(sessions.map(s => s.user_id))];
-
-                      
-                      // Se só tem sessões do usuário atual, RLS pode estar ativo
-                      if (uniqueUsers.length === 1 && uniqueUsers[0] === currentUser?.id) {
-                          showToast('Aviso: Apenas suas sessões estão sendo exibidas devido às políticas de segurança do banco de dados.', 'warning');
-                      }
-                  }
-
-                 // Buscar nomes dos usuários separadamente
-                 if (sessions && sessions.length > 0) {
-                     const userIds = [...new Set(sessions.map(s => s.user_id))];
-                     const { data: userProfiles } = await supabase
-                         .from('user_profiles')
-                         .select('id, name')
-                         .in('id', userIds);
-
-                     // Adicionar nomes dos usuários às sessões
-                     sessions.forEach(session => {
-                         const userProfile = userProfiles?.find(u => u.id === session.user_id);
-                         session.user_profiles = userProfile ? { name: userProfile.name } : null;
-                     });
-                 }
-
-                 console.log('Resultado da consulta:', { sessions, error });
+                const { data: sessions, error } = await supabaseClient
+                    .from('counting_sessions')
+                    .select('*')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .eq('id_usuario', currentUser.id)
+                    .order('created_at', { ascending: false });
                  if (error) throw error;
-
                  allCountingSessions = sessions || [];
                  filteredSessions = [...allCountingSessions];
-                 console.log('Sessions carregadas:', allCountingSessions.length);
-                 if (typeof loadUsersForFilter === 'function') loadUsersForFilter();
                  if (typeof setupFilterEventListeners === 'function') setupFilterEventListeners();
                  if (typeof renderSessionsTable === 'function') renderSessionsTable();
 
@@ -4794,73 +4569,77 @@
          // Função saveNewSession definida antes dos event listeners
          async function saveNewSession() {
              const form = document.getElementById('new-session-form');
-             const formData = new FormData(form);
-             
-             const userId = formData.get('user_id');
-             const sessionName = formData.get('session_name');
-             const description = formData.get('description');
-             const countType = formData.get('count_type');
-             
-             if (!userId || !sessionName || !countType) {
-                 showToast('Preencha todos os campos obrigatórios', 'error');
-                 return;
-             }
+            const formData = new FormData(form);
+            
+            const selectedUserId = formData.get('id_usuario') || currentUser?.id;
+            const sessionName = formData.get('session_name');
+            const description = formData.get('description');
+            const countType = formData.get('count_type');
+            
+            if (!sessionName || !countType) {
+                showToast('Preencha todos os campos obrigatórios', 'error');
+                return;
+            }
 
-             if (!supabase) {
-                 console.error('Supabase não está disponível');
-                 showToast('Erro de conexão com o banco de dados', 'error');
-                 return;
-             }
+            if (!supabaseClient) {
+                console.error('Supabase não está disponível');
+                showToast('Erro de conexão com o banco de dados', 'error');
+                return;
+            }
 
-             // Verificar se o usuário está autenticado
-             const { data: { user }, error: authError } = await supabase.auth.getUser();
-             if (authError || !user) {
-                 console.error('Usuário não autenticado:', authError);
-                 showToast('Você precisa estar logado para criar uma sessão', 'error');
-                 return;
-             }
+            if (!currentUser || !currentEmpresa) {
+                showToast('Você precisa estar logado para criar uma sessão', 'error');
+                return;
+            }
 
-             // Usar o userId selecionado no formulário
-             let finalUserId = userId;
-             
-             if (!finalUserId) {
-                 showToast('Por favor, selecione um usuário para a sessão', 'error');
-                 return;
-             }
+            try {
+                console.log('importedProductsCount:', importedProductsCount);
+                
+                // Verificar se já existe uma sessão de importação ativa
+                const existingImportSession = allCountingSessions.find(session => 
+                    session.session_name && session.session_name.includes('Importação CSV') && 
+                    session.status === 'waiting' && 
+                    session.total_items > 0
+                );
+                
+                if (existingImportSession && importedProductsCount > 0) {
+                    showToast('Já existe uma sessão de importação ativa. Use a sessão existente ou exclua-a primeiro.', 'warning');
+                    return;
+                }
+                
+                const sessionData = {
+                    id_usuario: parseInt(selectedUserId, 10) || currentUser.id,
+                    id_empresa: currentEmpresa.id,
+                    session_name: sessionName,
+                    description: description || '',
+                    count_type: countType,
+                    total_items: 0, // Sempre iniciar com 0 para sessões manuais
+                    counted_items: 0,
+                    scanned_items: 0,
+                    status: 'waiting'
+                };
+                
+                console.log('Dados da sessão:', sessionData);
 
-             try {
-                 console.log('importedProductsCount:', importedProductsCount);
-                 
-                 // Verificar se já existe uma sessão de importação ativa
-                 const existingImportSession = allCountingSessions.find(session => 
-                     session.session_name && session.session_name.includes('Importação CSV') && 
-                     session.status === 'waiting' && 
-                     session.total_items > 0
-                 );
-                 
-                 if (existingImportSession && importedProductsCount > 0) {
-                     showToast('Já existe uma sessão de importação ativa. Use a sessão existente ou exclua-a primeiro.', 'warning');
-                     return;
+                 let insertResult = { data: null, error: null };
+                 try {
+                     insertResult = await supabaseClient
+                         .rpc('create_counting_session', {
+                             p_id_usuario: sessionData.id_usuario,
+                             p_id_empresa: sessionData.id_empresa,
+                             p_session_name: sessionData.session_name,
+                             p_description: sessionData.description,
+                             p_count_type: sessionData.count_type
+                         })
+                         .single();
+                 } catch (e) {
+                     insertResult = await supabaseClient
+                         .from('counting_sessions')
+                         .insert([sessionData])
+                         .select()
+                         .single();
                  }
-                 
-                 const sessionData = {
-                     user_id: finalUserId,
-                     session_name: sessionName,
-                     description: description || '',
-                     count_type: countType,
-                     total_items: 0, // Sempre iniciar com 0 para sessões manuais
-                     counted_items: 0,
-                     scanned_items: 0,
-                     status: 'waiting'
-                 };
-                 
-                 console.log('Dados da sessão:', sessionData);
-
-                 const { data: newSession, error } = await supabase
-                     .from('counting_sessions')
-                     .insert([sessionData])
-                     .select()
-                     .single();
+                 const { data: newSession, error } = insertResult;
 
                  if (error) throw error;
 
@@ -4881,7 +4660,7 @@
             }
 
             try {
-                const { error } = await supabase
+                const { error } = await supabaseClient
                     .from('counting_sessions')
                     .delete()
                     .eq('id', sessionId);
@@ -4902,23 +4681,7 @@
             const userFilter = document.getElementById('user-filter');
             if (!userFilter || !allCountingSessions) return;
 
-            // Usar Map para garantir usuários únicos por ID
-            const usersMap = new Map();
-            
-            allCountingSessions
-                .filter(session => session.user_profiles?.name && session.user_id)
-                .forEach(session => {
-                    if (!usersMap.has(session.user_id)) {
-                        usersMap.set(session.user_id, {
-                            id: session.user_id,
-                            name: session.user_profiles.name
-                        });
-                    }
-                });
-            
-            // Converter Map para array e ordenar por nome
-            const uniqueUsers = Array.from(usersMap.values())
-                .sort((a, b) => a.name.localeCompare(b.name));
+            const uniqueUsers = currentUser ? [{ id: currentUser.id, name: currentUser.nome }] : [];
             
             // Limpar opções existentes (exceto "Todos os Usuários")
             userFilter.innerHTML = '<option value="">Todos os Usuários</option>';
@@ -4965,15 +4728,15 @@
             const userFilter = document.getElementById('user-filter')?.value || '';
 
             filteredSessions = allCountingSessions.filter(session => {
-                   const sessionName = session.session_name || session.device_id || '';
-                   const userName = session.user_profiles?.name || '';
+                   const sessionName = session.session_name || '';
+                   const userName = currentUser?.nome || '';
                    
                    const matchesSearch = !searchTerm || 
                        sessionName.toLowerCase().includes(searchTerm) ||
                        userName.toLowerCase().includes(searchTerm);
                    
                    const matchesStatus = !statusFilter || session.status === statusFilter;
-                   const matchesUser = !userFilter || session.user_id === userFilter;
+                   const matchesUser = !userFilter || session.id_usuario === userFilter;
  
                    return matchesSearch && matchesStatus && matchesUser;
                });
@@ -5104,14 +4867,14 @@
              }
 
              // Check authentication state
-             if (supabase) {
-                 supabase.auth.onAuthStateChange((event, session) => {
-                     if (event === 'SIGNED_IN' && session) {
-                         // User signed in
-                     } else if (event === 'SIGNED_OUT') {
-                         showAuthSection();
-                     }
-                 });
+            if (supabaseClient) {
+                supabaseClient.auth.onAuthStateChange((event, session) => {
+                    if (event === 'SIGNED_IN' && session) {
+                        // User signed in
+                    } else if (event === 'SIGNED_OUT') {
+                        showAuthSection();
+                    }
+                });
 
                  // ===== COUNTING SESSIONS CRUD FUNCTIONS =====
                  // Variáveis e função movidas para escopo global
@@ -5220,18 +4983,16 @@
                         // Tentar inserir no Supabase, se falhar usar localStorage
                         console.log('Produtos a serem inseridos:', products);
                         
-                        try {
-                             // Primeiro, obter o usuário atual
-                             const { data: { user } } = await supabase.auth.getUser();
-                             
+                try {
                              // Obter nome do arquivo sem extensão
                              const fileName = file.name;
                              
                              // Verificar se o arquivo já foi uploaded antes (buscar em todas as sessões)
-                             const { data: existingSessions, error: checkError } = await supabase
-                                 .from('counting_sessions')
-                                 .select('id, session_name, arquivo_uploaded, user_id')
-                                 .eq('arquivo_uploaded', fileName);
+                            const { data: existingSessions, error: checkError } = await supabaseClient
+                                .from('counting_sessions')
+                                .select('id, session_name, arquivo_uploaded, id_usuario, id_empresa')
+                                .eq('arquivo_uploaded', fileName)
+                                .eq('id_empresa', currentEmpresa.id);
                              
                              if (checkError) {
                                  console.warn('Erro ao verificar arquivos duplicados:', checkError);
@@ -5250,19 +5011,35 @@
                              const finalSessionName = currentSessionName;
                              
                              // Criar uma sessão de contagem
-                             const { data: sessionData, error: sessionError } = await supabase
-                                 .from('counting_sessions')
-                                 .insert({
-                                     user_id: user?.id || crypto.randomUUID(),
-                                     session_name: finalSessionName,
-                                     description: 'Sessão criada automaticamente para importação de produtos',
-                                     count_type: 'normal',
-                                     status: 'waiting',
-                                     total_items: 0,
-                                     arquivo_uploaded: fileName
-                                 })
-                                 .select()
-                                 .single();
+                             let sessionCreate = { data: null, error: null };
+                             try {
+                                 sessionCreate = await supabaseClient
+                                     .rpc('create_counting_session', {
+                                         p_id_usuario: currentUser.id,
+                                         p_id_empresa: currentEmpresa.id,
+                                         p_session_name: finalSessionName,
+                                         p_description: 'Sessão criada automaticamente para importação de produtos',
+                                         p_count_type: 'normal',
+                                         p_arquivo_uploaded: fileName
+                                     })
+                                     .single();
+                             } catch (e) {
+                                 sessionCreate = await supabaseClient
+                                     .from('counting_sessions')
+                                     .insert({
+                                         id_usuario: currentUser.id,
+                                         id_empresa: currentEmpresa.id,
+                                         session_name: finalSessionName,
+                                         description: 'Sessão criada automaticamente para importação de produtos',
+                                         count_type: 'normal',
+                                         status: 'waiting',
+                                         total_items: 0,
+                                         arquivo_uploaded: fileName
+                                     })
+                                     .select()
+                                     .single();
+                             }
+                             const { data: sessionData, error: sessionError } = sessionCreate;
 
                              if (sessionError) {
                                  console.error('Erro ao criar sessão:', sessionError);
@@ -5284,10 +5061,10 @@
                              console.log('Dados que serão enviados ao Supabase:', supabaseProducts);
                              console.log('Produtos com localização para Supabase:', supabaseProducts.filter(p => p.localizacao));
                              
-                             const { data, error } = await supabase
-                                 .from('products')
-                                 .insert(supabaseProducts)
-                                 .select();
+                            const { data, error } = await supabaseClient
+                                .from('products')
+                                .insert(supabaseProducts)
+                                .select();
 
                              if (error) {
                                  console.error('Erro detalhado do Supabase:', error);
@@ -5301,14 +5078,14 @@
                              
                              // Atualizar a sessão com o total correto de itens
                              console.log('Atualizando sessão:', sessionId, 'com total_items:', data.length);
-                             const { data: updateData, error: updateError } = await supabase
-                                 .from('counting_sessions')
-                                 .update({ 
-                                     total_items: data.length,
-                                     status: 'waiting'
-                                 })
-                                 .eq('id', sessionId)
-                                 .select();
+                            const { data: updateData, error: updateError } = await supabaseClient
+                                .from('counting_sessions')
+                                .update({ 
+                                    total_items: data.length,
+                                    status: 'waiting'
+                                })
+                                .eq('id', sessionId)
+                                .select();
                              
                              if (updateError) {
                                  console.error('Erro ao atualizar sessão:', updateError);
@@ -5387,29 +5164,29 @@
 
                 // Função saveNewSession movida para antes do DOMContentLoaded
 
-                 async function editSession(sessionId) {
-                     const session = allCountingSessions.find(s => s.id === sessionId);
-                     if (!session) return;
+                async function editSession(sessionId) {
+                    const session = allCountingSessions.find(s => s.id === sessionId);
+                    if (!session) return;
 
-                     const newDeviceId = prompt('Digite o novo ID do dispositivo:', session.device_id);
-                     if (!newDeviceId || newDeviceId === session.device_id) return;
+                    const newName = prompt('Digite o novo nome da sessão:', session.session_name || '');
+                    if (!newName || newName === session.session_name) return;
 
-                     try {
-                         const { error } = await supabase
-                             .from('counting_sessions')
-                             .update({ device_id: newDeviceId })
-                             .eq('id', sessionId);
+                    try {
+                        const { error } = await supabaseClient
+                            .from('counting_sessions')
+                            .update({ session_name: newName })
+                            .eq('id', sessionId);
 
-                         if (error) throw error;
+                        if (error) throw error;
 
-                         showToast('Sessão atualizada com sucesso!', 'success');
-                         loadCountingSessions();
+                        showToast('Sessão atualizada com sucesso!', 'success');
+                        loadCountingSessions();
 
-                     } catch (error) {
-                         console.error('Erro ao editar sessão:', error);
-                         showToast('Erro ao editar sessão', 'error');
-                     }
-                 }
+                    } catch (error) {
+                        console.error('Erro ao editar sessão:', error);
+                        showToast('Erro ao editar sessão', 'error');
+                    }
+                }
 
 
 
@@ -5418,10 +5195,10 @@
 
 
                  // Manter função original para compatibilidade
-                 function generateSessionCSV(session, countingItems) {
-                     const sessionName = session.session_name || session.device_id || 'N/A';
-                     const userName = session.user_profiles?.name || 'N/A';
-                     const createdDate = new Date(session.created_at).toLocaleString('pt-BR');
+                function generateSessionCSV(session, countingItems) {
+                    const sessionName = session.session_name || 'N/A';
+                    const userName = currentUser?.nome || 'N/A';
+                    const createdDate = new Date(session.created_at).toLocaleString('pt-BR');
                      
                      let csv = 'Relatório de Sessão de Contagem\n\n';
                      csv += `Sessão:,${sessionName}\n`;
@@ -5466,18 +5243,7 @@
                      observer.observe(page, { attributes: true, attributeFilter: ['class'] });
                  });
 
-                 // Check if user is already logged in
-                 supabase.auth.getSession().then(({ data: { session } }) => {
-                     if (session) {
-                         currentUser = session.user;
-                         showMainApp();
-                         loadUserData();
-                         startAutoSync();
-                         setupVisibilitySync();
-                     } else {
-                         showAuthSection();
-                     }
-                 });
+                showAuthSection();
              } else {
                  showAuthSection();
              }
@@ -5485,21 +5251,25 @@
              // Setup event listeners after all functions are defined
              
              // Define functions
-             async function loadAvailableUsers() {
-                 try {
-                     const { data: userProfiles, error } = await supabase
-                         .from('user_profiles')
-                         .select('id, name')
-                         .eq('authorized', true)
-                         .order('name');
-
-                     if (error) throw error;
-                     availableUsers = userProfiles || [];
-                 } catch (error) {
-                     console.error('Erro ao carregar usuários:', error);
-                     availableUsers = [];
-                 }
-             }
+           async function loadAvailableUsers() {
+                try {
+                    if (!currentEmpresa || !supabaseClient) {
+                        availableUsers = [];
+                        return;
+                    }
+                    const { data: usuarios, error } = await supabaseClient
+                        .from('usuarios')
+                        .select('id, nome, ativo')
+                        .eq('id_empresa', currentEmpresa.id)
+                        .eq('ativo', true)
+                        .order('nome');
+                    if (error) throw error;
+                    availableUsers = (usuarios || []).map(u => ({ id: u.id, name: u.nome }));
+                } catch (error) {
+                    console.error('Erro ao carregar usuários:', error);
+                    availableUsers = [];
+                }
+            }
 
              function openNewSessionSidebar() {
                  const sidebar = document.getElementById('new-session-sidebar');
@@ -5663,13 +5433,15 @@
          }
 
          // Função para carregar configurações existentes
-         async function loadExistingConfigurations() {
-             try {
-                 const { data, error } = await supabase
-                     .from('configuracao_estoque')
-                     .select('*')
-                     .limit(1)
-                     .single();
+        async function loadExistingConfigurations() {
+            try {
+                if (!currentEmpresa) return;
+                const { data, error } = await supabaseClient
+                    .from('configuracao_estoque')
+                    .select('*')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .limit(1)
+                    .single();
 
                  if (error && error.code !== 'PGRST116') {
                      console.error('Erro ao carregar configurações:', error);
@@ -5741,29 +5513,34 @@
                  // Mostrar mensagem de carregamento
                  showMessage(messageElement, 'Salvando configurações...', 'info');
 
-                 // Verificar se já existe uma configuração
-                 const { data: existingConfig, error: selectError } = await supabase
-                     .from('configuracao_estoque')
-                     .select('id')
-                     .limit(1)
-                     .single();
+                // Verificar se já existe uma configuração
+                if (!currentEmpresa) {
+                    showMessage(messageElement, 'Nenhuma empresa selecionada', 'error');
+                    return;
+                }
+                const { data: existingConfig, error: selectError } = await supabaseClient
+                    .from('configuracao_estoque')
+                    .select('id')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .limit(1)
+                    .single();
 
                  let result;
                  if (existingConfig) {
                      // Atualizar configuração existente
-                     result = await supabase
-                         .from('configuracao_estoque')
-                         .update({
-                             ...configData,
-                             updated_at: new Date().toISOString()
-                         })
-                         .eq('id', existingConfig.id);
-                 } else {
-                     // Criar nova configuração
-                     result = await supabase
-                         .from('configuracao_estoque')
-                         .insert([configData]);
-                 }
+                    result = await supabaseClient
+                        .from('configuracao_estoque')
+                        .update({
+                            ...configData,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', existingConfig.id);
+                } else {
+                    // Criar nova configuração
+                    result = await supabaseClient
+                        .from('configuracao_estoque')
+                        .insert([{ ...configData, id_empresa: currentEmpresa.id }]);
+                }
 
                  if (result.error) {
                      throw result.error;
@@ -5833,15 +5610,15 @@
          // Carregar produtos do Supabase
          async function loadProducts() {
              try {
-                 if (!supabase) {
-                     showToast('Conexão com banco de dados indisponível', 'error');
-                     return;
-                 }
+            if (!supabaseClient) {
+                showToast('Conexão com banco de dados indisponível', 'error');
+                return;
+            }
 
                  // Construir query base
-                 let query = supabase
-                     .from('products')
-                     .select('*', { count: 'exact' });
+                let query = supabaseClient
+                    .from('products')
+                    .select('*', { count: 'exact' });
 
                  // Aplicar filtros
                  if (productsFilters.search) {
@@ -5857,7 +5634,7 @@
                  }
 
                  // Aplicar ordenação
-                 query = query.order(currentProductsSort.field, { ascending: currentProductsSort.direction === 'asc' });
+                query = query.order(currentProductsSort.field, { ascending: currentProductsSort.direction === 'asc' });
 
                  // Aplicar paginação
                  const from = (currentProductsPage - 1) * productsPerPage;
@@ -5955,10 +5732,11 @@
              try {
                  if (!supabase) return;
 
-                 const { data: sessions, error } = await supabase
-                     .from('counting_sessions')
-                     .select('id, session_name')
-                     .order('id', { ascending: false });
+                const { data: sessions, error } = await supabaseClient
+                    .from('counting_sessions')
+                    .select('id, session_name')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .order('id', { ascending: false });
 
                  if (error) {
                      console.error('Erro ao carregar sessões:', error);
@@ -6029,15 +5807,15 @@
              }
 
              try {
-                 if (!supabase) {
-                     showToast('Conexão com banco de dados indisponível', 'error');
-                     return;
-                 }
+                if (!supabaseClient) {
+                    showToast('Conexão com banco de dados indisponível', 'error');
+                    return;
+                }
 
-                 const { error } = await supabase
-                     .from('products')
-                     .delete()
-                     .eq('id', productId);
+                const { error } = await supabaseClient
+                    .from('products')
+                    .delete()
+                    .eq('id', productId);
 
                  if (error) {
                      console.error('Erro ao excluir produto:', error);
@@ -6057,15 +5835,15 @@
          // Exportar produtos
          async function exportProducts() {
              try {
-                 if (!supabase) {
-                     showToast('Conexão com banco de dados indisponível', 'error');
-                     return;
-                 }
+                if (!supabaseClient) {
+                    showToast('Conexão com banco de dados indisponível', 'error');
+                    return;
+                }
 
-                 // Buscar todos os produtos (sem paginação para exportação)
-                 let query = supabase
-                     .from('products')
-                     .select('*');
+                // Buscar todos os produtos (sem paginação para exportação)
+                let query = supabaseClient
+                    .from('products')
+                    .select('*');
 
                  // Aplicar os mesmos filtros da visualização
                  if (productsFilters.search) {
@@ -6255,46 +6033,48 @@
          async function downloadSessionCSV(sessionId) {
              try {
                  // Buscar dados da sessão
-                const { data: session, error: sessionError } = await supabase
-                    .from('counting_sessions')
-                    .select('*')
-                    .eq('id', sessionId)
-                    .single();
+               const { data: session, error: sessionError } = await supabaseClient
+                   .from('counting_sessions')
+                   .select('*')
+                   .eq('id', sessionId)
+                   .single();
 
                 if (sessionError) throw sessionError;
 
                 // Buscar dados do usuário separadamente
-                const { data: userProfile, error: userError } = await supabase
-                    .from('user_profiles')
-                    .select('name')
-                    .eq('id', session.user_id)
-                    .single();
+               const { data: usuario, error: userError } = await supabaseClient
+                   .from('usuarios')
+                   .select('nome')
+                   .eq('id', session.id_usuario)
+                   .eq('id_empresa', session.id_empresa)
+                   .single();
 
                 // Adicionar nome do usuário à sessão (se encontrado)
-                 if (userProfile && !userError) {
-                     session.user_name = userProfile.name;
+                 if (usuario && !userError) {
+                     session.user_name = usuario.nome;
                  }
 
                  // Buscar produtos contados da sessão com informações completas
-                 const { data: countedProducts, error: productsError } = await supabase
-                     .from('products')
-                     .select(`
-                         codigo,
-                         descricao,
-                         quantidade_contada,
-                         scanned_qty
-                     `)
-                     .eq('session_id', sessionId)
-                     .gt('quantidade_contada', 0);
+                const { data: countedProducts, error: productsError } = await supabaseClient
+                    .from('products')
+                    .select(`
+                        codigo,
+                        descricao,
+                        quantidade_contada,
+                        scanned_qty
+                    `)
+                    .eq('session_id', sessionId)
+                    .gt('quantidade_contada', 0);
 
                  if (productsError) throw productsError;
 
-                 // Carregar configurações de exportação
-                 const { data: config } = await supabase
-                     .from('configuracao_estoque')
-                     .select('*')
-                     .limit(1)
-                     .single();
+                // Carregar configurações de exportação
+               const { data: config } = await supabaseClient
+                   .from('configuracao_estoque')
+                   .select('*')
+                   .eq('id_empresa', session.id_empresa)
+                   .limit(1)
+                   .single();
 
                  // Gerar CSV com base nas configurações
                  const csvContent = generateCountingCSV(session, countedProducts, config);
@@ -6378,7 +6158,7 @@
                      .from('products')
                      .select(`
                          *,
-                         counting_sessions!inner(session_name, user_id)
+                        counting_sessions!inner(session_name, id_usuario, id_empresa)
                      `, { count: 'exact' });
 
                  // Aplicar filtros
@@ -6402,7 +6182,8 @@
                  const to = from + statisticsPerPage - 1;
                  query = query.range(from, to);
 
-                 const { data: products, error, count } = await query;
+                query = query.eq('counting_sessions.id_empresa', currentEmpresa.id);
+                const { data: products, error, count } = await query;
 
                  if (error) {
                      console.error('Erro ao carregar estatísticas:', error);
@@ -6528,10 +6309,10 @@
          // Carregar sessões para filtro de estatísticas
          async function loadStatisticsSessions() {
              try {
-                 const { data: sessions, error } = await supabase
-                     .from('counting_sessions')
-                     .select('id, session_name')
-                     .order('created_at', { ascending: false });
+                const { data: sessions, error } = await supabaseClient
+                    .from('counting_sessions')
+                    .select('id, session_name')
+                    .order('created_at', { ascending: false });
 
                  if (error) throw error;
 
@@ -6650,8 +6431,8 @@
              <div class="sidebar-body">
                  <form id="new-session-form">
                      <div class="form-group">
-                         <label for="session-user">Usuário da Sessão *</label>
-                         <select id="session-user" name="user_id" class="form-control" required>
+                        <label for="session-user">Usuário da Sessão *</label>
+                        <select id="session-user" name="id_usuario" class="form-control" required>
                              <option value="">Selecione um usuário</option>
                          </select>
                      </div>
