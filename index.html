@@ -415,6 +415,16 @@
             font-weight: 500;
             color: var(--text);
         }
+        .role-badge {
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.125rem 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            border-radius: 999px;
+            background: var(--primary);
+            color: #fff;
+        }
 
         /* ===== TABS ===== */
         .tab-nav {
@@ -2374,10 +2384,6 @@
                     </div>
                     <div class="nav-group">
                         <div class="nav-group-title">Operações</div>
-                        <a href="#" class="nav-item" data-page="configuracao">
-                            <i class="fas fa-cog"></i>
-                            <span>Configuração</span>
-                        </a>
                         <a href="#" class="nav-item" data-page="contagem">
                             <i class="fas fa-clipboard-list"></i>
                             <span>Contagem</span>
@@ -2400,6 +2406,10 @@
                     </div>
                     <div class="nav-group">
                         <div class="nav-group-title">Sistema</div>
+                        <a href="#" class="nav-item" data-page="configuracao">
+                            <i class="fas fa-cog"></i>
+                            <span>Configuração</span>
+                        </a>
                         <a href="#" class="nav-item" id="logout-nav">
                             <i class="fas fa-sign-out-alt"></i>
                             <span>Sair</span>
@@ -2438,6 +2448,7 @@
                     <div class="header-right">
                         <div class="user-info">
                             <span class="user-name" id="user-name">Usuário</span>
+                            <span class="role-badge" id="role-badge" style="display: none;">Admin</span>
                         </div>
                         <button class="theme-toggle" id="theme-toggle" title="Alternar tema">
                             <i class="fas fa-moon"></i>
@@ -3612,28 +3623,37 @@
              navigateToPage('dashboard');
          }
 
-         function updateUserInfo() {
-            if (currentUser && currentEmpresa) {
-                const userInitials = document.getElementById('user-initials');
-                const userName = document.getElementById('user-name');
-                const customerName = document.getElementById('customer-name');
-                if (userInitials) {
-                    const initials = (currentUser.nome || 'Usuario')
-                        .split(' ')
-                        .map(n => n[0])
-                        .join('')
-                        .toUpperCase()
-                        .substring(0, 2);
-                    userInitials.textContent = initials;
-                }
-                if (userName) {
-                    userName.textContent = currentUser.nome || 'Usuário';
-                }
-                if (customerName) {
-                    customerName.textContent = currentEmpresa.nome || 'Cliente';
-                }
-            }
-        }
+        function updateUserInfo() {
+           if (currentUser && currentEmpresa) {
+               const userInitials = document.getElementById('user-initials');
+               const userName = document.getElementById('user-name');
+               const customerName = document.getElementById('customer-name');
+               const roleBadge = document.getElementById('role-badge');
+               if (userInitials) {
+                   const initials = (currentUser.nome || 'Usuario')
+                       .split(' ')
+                       .map(n => n[0])
+                       .join('')
+                       .toUpperCase()
+                       .substring(0, 2);
+                   userInitials.textContent = initials;
+               }
+               if (userName) {
+                   userName.textContent = currentUser.nome || 'Usuário';
+               }
+               if (roleBadge) {
+                   if ((currentUser.role || '').toLowerCase() === 'admin') {
+                       roleBadge.textContent = 'Admin';
+                       roleBadge.style.display = 'inline-block';
+                   } else {
+                       roleBadge.style.display = 'none';
+                   }
+               }
+               if (customerName) {
+                   customerName.textContent = currentEmpresa.nome || 'Cliente';
+               }
+           }
+       }
 
         async function handleLogin() {
             if (!supabaseClient) return showToast('SDK do Supabase indisponível.', 'error');
@@ -3896,12 +3916,15 @@
              let scanned = 0;
 
             if (supabaseClient && currentUser && currentEmpresa) {
-                const { data: activeSessions } = await supabaseClient
+                let query = supabaseClient
                     .from('counting_sessions')
                     .select('*')
                     .eq('status', 'active')
-                    .eq('id_empresa', currentEmpresa.id)
-                    .eq('id_usuario', currentUser.id);
+                    .eq('id_empresa', currentEmpresa.id);
+                if (currentUser?.role !== 'admin') {
+                    query = query.eq('id_usuario', currentUser.id);
+                }
+                const { data: activeSessions } = await query;
 
                  if (activeSessions && activeSessions.length > 0) {
                      // Somar dados de todas as sessões ativas
@@ -4291,12 +4314,15 @@
          async function loadSessionHistory() {
             if (!supabaseClient || !currentUser) return;
 
-             try {
-                const { data: sessions } = await supabaseClient
+            try {
+                let query = supabaseClient
                     .from('counting_sessions')
                     .select('*')
-                    .eq('id_usuario', currentUser.id)
-                    .eq('id_empresa', currentEmpresa.id)
+                    .eq('id_empresa', currentEmpresa.id);
+                if (currentUser?.role !== 'admin') {
+                    query = query.eq('id_usuario', currentUser.id);
+                }
+                const { data: sessions } = await query
                     .order('created_at', { ascending: false })
                     .limit(50);
 
@@ -4419,7 +4445,7 @@
 
              tableBody.innerHTML = paginatedSessions.map(session => {
                     const progress = session.total_items > 0 ? Math.round((session.counted_items / session.total_items) * 100) : 0;
-                    const userName = currentUser?.nome || 'N/A';
+                    const userName = session.user_name || '-';
                     const sessionName = session.session_name || 'N/A';
                     const createdDate = new Date(session.created_at).toLocaleDateString('pt-BR');
                     const createdTime = new Date(session.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -4546,20 +4572,40 @@
              tableContainer?.classList.add('hidden');
 
              try {
-                const { data: sessions, error } = await supabaseClient
+                let query = supabaseClient
                     .from('counting_sessions')
                     .select('*')
-                    .eq('id_empresa', currentEmpresa.id)
-                    .eq('id_usuario', currentUser.id)
+                    .eq('id_empresa', currentEmpresa.id);
+                if (currentUser?.role !== 'admin') {
+                    query = query.eq('id_usuario', currentUser.id);
+                }
+                const { data: sessions, error } = await query
                     .order('created_at', { ascending: false });
-                 if (error) throw error;
-                 allCountingSessions = sessions || [];
-                 filteredSessions = [...allCountingSessions];
-                 if (typeof setupFilterEventListeners === 'function') setupFilterEventListeners();
-                 if (typeof renderSessionsTable === 'function') renderSessionsTable();
+                if (error) throw error;
+                
+                const userIds = Array.from(new Set((sessions || []).map(s => s.id_usuario).filter(Boolean)));
+                let usersMap = {};
+                if (userIds.length > 0) {
+                    const { data: usuarios } = await supabaseClient
+                        .from('usuarios')
+                        .select('id, nome')
+                        .eq('id_empresa', currentEmpresa.id)
+                        .in('id', userIds);
+                    (usuarios || []).forEach(u => { usersMap[u.id] = u.nome; });
+                }
+                
+                allCountingSessions = (sessions || []).map(s => ({
+                    ...s,
+                    user_name: usersMap[s.id_usuario] || ''
+                }));
+                sessionsUsersMap = usersMap;
+                filteredSessions = [...allCountingSessions];
+                if (typeof loadUsersForFilter === 'function') loadUsersForFilter();
+                if (typeof setupFilterEventListeners === 'function') setupFilterEventListeners();
+                if (typeof renderSessionsTable === 'function') renderSessionsTable();
 
-             } catch (error) {
-                 console.error('Erro ao carregar sessões:', error);
+            } catch (error) {
+                console.error('Erro ao carregar sessões:', error);
                  showToast('Erro ao carregar sessões de contagem', 'error');
              } finally {
                  loadingState?.classList.add('hidden');
@@ -4571,7 +4617,10 @@
              const form = document.getElementById('new-session-form');
             const formData = new FormData(form);
             
-            const selectedUserId = formData.get('id_usuario') || currentUser?.id;
+            let selectedUserId = formData.get('id_usuario') || currentUser?.id;
+            if (currentUser?.role !== 'admin') {
+                selectedUserId = currentUser?.id;
+            }
             const sessionName = formData.get('session_name');
             const description = formData.get('description');
             const countType = formData.get('count_type');
@@ -4639,7 +4688,14 @@
                          .select()
                          .single();
                  }
-                 const { data: newSession, error } = insertResult;
+                if (insertResult?.error) {
+                    insertResult = await supabaseClient
+                        .from('counting_sessions')
+                        .insert([sessionData])
+                        .select()
+                        .single();
+                }
+                const { data: newSession, error } = insertResult;
 
                  if (error) throw error;
 
@@ -4660,6 +4716,11 @@
             }
 
             try {
+                const target = allCountingSessions.find(s => s.id === sessionId);
+                if (target && currentUser && currentUser.role !== 'admin' && target.id_usuario !== currentUser.id) {
+                    showToast('Você não tem permissão para excluir esta sessão', 'error');
+                    return;
+                }
                 const { error } = await supabaseClient
                     .from('counting_sessions')
                     .delete()
@@ -4680,19 +4741,22 @@
         function loadUsersForFilter() {
             const userFilter = document.getElementById('user-filter');
             if (!userFilter || !allCountingSessions) return;
-
-            const uniqueUsers = currentUser ? [{ id: currentUser.id, name: currentUser.nome }] : [];
             
-            // Limpar opções existentes (exceto "Todos os Usuários")
             userFilter.innerHTML = '<option value="">Todos os Usuários</option>';
-            
-            // Adicionar opções de usuários
-            uniqueUsers.forEach(user => {
+            if (currentUser?.role === 'admin') {
+                const entries = Object.entries(sessionsUsersMap || {});
+                entries.forEach(([id, name]) => {
+                    const option = document.createElement('option');
+                    option.value = String(id);
+                    option.textContent = name || String(id);
+                    userFilter.appendChild(option);
+                });
+            } else if (currentUser) {
                 const option = document.createElement('option');
-                option.value = user.id;
-                option.textContent = user.name;
+                option.value = String(currentUser.id);
+                option.textContent = currentUser.nome;
                 userFilter.appendChild(option);
-            });
+            }
         }
 
         function setupFilterEventListeners() {
@@ -4725,18 +4789,18 @@
         function filterSessions() {
             const searchTerm = document.getElementById('session-search')?.value.toLowerCase() || '';
             const statusFilter = document.getElementById('status-filter')?.value || '';
-            const userFilter = document.getElementById('user-filter')?.value || '';
+            const userFilterValue = document.getElementById('user-filter')?.value || '';
 
             filteredSessions = allCountingSessions.filter(session => {
                    const sessionName = session.session_name || '';
-                   const userName = currentUser?.nome || '';
+                   const userName = session.user_name || '';
                    
                    const matchesSearch = !searchTerm || 
                        sessionName.toLowerCase().includes(searchTerm) ||
                        userName.toLowerCase().includes(searchTerm);
                    
                    const matchesStatus = !statusFilter || session.status === statusFilter;
-                   const matchesUser = !userFilter || session.id_usuario === userFilter;
+                   const matchesUser = !userFilterValue || String(session.id_usuario) === userFilterValue;
  
                    return matchesSearch && matchesStatus && matchesUser;
                });
@@ -4884,10 +4948,11 @@
 
 
 
-                 // Variáveis globais para a sidebar
+                // Variáveis globais para a sidebar
                 let availableUsers = [];
                 let selectedFile = null;
                 let importedProductsCount = 0;
+                let sessionsUsersMap = {};
 
 
 
@@ -5039,6 +5104,22 @@
                                      .select()
                                      .single();
                              }
+                             if (sessionCreate?.error) {
+                                 sessionCreate = await supabaseClient
+                                     .from('counting_sessions')
+                                     .insert({
+                                         id_usuario: currentUser.id,
+                                         id_empresa: currentEmpresa.id,
+                                         session_name: finalSessionName,
+                                         description: 'Sessão criada automaticamente para importação de produtos',
+                                         count_type: 'normal',
+                                         status: 'waiting',
+                                         total_items: 0,
+                                         arquivo_uploaded: fileName
+                                     })
+                                     .select()
+                                     .single();
+                             }
                              const { data: sessionData, error: sessionError } = sessionCreate;
 
                              if (sessionError) {
@@ -5172,6 +5253,10 @@
                     if (!newName || newName === session.session_name) return;
 
                     try {
+                        if (currentUser && currentUser.role !== 'admin' && session.id_usuario !== currentUser.id) {
+                            showToast('Você não tem permissão para editar esta sessão', 'error');
+                            return;
+                        }
                         const { error } = await supabaseClient
                             .from('counting_sessions')
                             .update({ session_name: newName })
@@ -5257,14 +5342,18 @@
                         availableUsers = [];
                         return;
                     }
-                    const { data: usuarios, error } = await supabaseClient
-                        .from('usuarios')
-                        .select('id, nome, ativo')
-                        .eq('id_empresa', currentEmpresa.id)
-                        .eq('ativo', true)
-                        .order('nome');
-                    if (error) throw error;
-                    availableUsers = (usuarios || []).map(u => ({ id: u.id, name: u.nome }));
+                    if (currentUser?.role === 'admin') {
+                        const { data: usuarios, error } = await supabaseClient
+                            .from('usuarios')
+                            .select('id, nome, ativo')
+                            .eq('id_empresa', currentEmpresa.id)
+                            .eq('ativo', true)
+                            .order('nome');
+                        if (error) throw error;
+                        availableUsers = (usuarios || []).map(u => ({ id: u.id, name: u.nome }));
+                    } else {
+                        availableUsers = [{ id: currentUser.id, name: currentUser.nome }];
+                    }
                 } catch (error) {
                     console.error('Erro ao carregar usuários:', error);
                     availableUsers = [];
@@ -5294,16 +5383,21 @@
                  if (importStatus) importStatus.style.display = 'none';
                  
                  // Preencher combo de usuários
-                 userSelect.innerHTML = '<option value="">Selecione um usuário</option>';
-                 availableUsers.forEach(user => {
-                     const option = document.createElement('option');
-                     option.value = user.id;
-                     option.textContent = user.name;
-                     if (user.id === currentUser.id) {
-                         option.selected = true;
-                     }
-                     userSelect.appendChild(option);
-                 });
+                userSelect.innerHTML = '<option value="">Selecione um usuário</option>';
+                availableUsers.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.name;
+                    if (user.id === currentUser.id) {
+                        option.selected = true;
+                    }
+                    userSelect.appendChild(option);
+                });
+                if (currentUser?.role !== 'admin') {
+                    userSelect.disabled = true;
+                } else {
+                    userSelect.disabled = false;
+                }
                  
                  sidebar.classList.add('active');
              }
@@ -5506,16 +5600,20 @@
          }
 
          // Função principal para salvar configuração
-         async function saveConfiguration(configData, messageElementId) {
-             const messageElement = document.getElementById(messageElementId);
+        async function saveConfiguration(configData, messageElementId) {
+            const messageElement = document.getElementById(messageElementId);
              
-             try {
-                 // Mostrar mensagem de carregamento
-                 showMessage(messageElement, 'Salvando configurações...', 'info');
+            try {
+                // Mostrar mensagem de carregamento
+                showMessage(messageElement, 'Salvando configurações...', 'info');
 
                 // Verificar se já existe uma configuração
                 if (!currentEmpresa) {
                     showMessage(messageElement, 'Nenhuma empresa selecionada', 'error');
+                    return;
+                }
+                if (!currentUser || currentUser.role !== 'admin') {
+                    showMessage(messageElement, 'Permissão negada', 'error');
                     return;
                 }
                 const { data: existingConfig, error: selectError } = await supabaseClient
@@ -5614,11 +5712,16 @@
                 showToast('Conexão com banco de dados indisponível', 'error');
                 return;
             }
+            if (!currentEmpresa) {
+                showToast('Empresa não definida no contexto', 'error');
+                return;
+            }
 
                  // Construir query base
                 let query = supabaseClient
                     .from('products')
-                    .select('*', { count: 'exact' });
+                    .select('*, counting_sessions!inner(id_empresa)', { count: 'exact' })
+                    .eq('counting_sessions.id_empresa', currentEmpresa.id);
 
                  // Aplicar filtros
                  if (productsFilters.search) {
@@ -5730,12 +5833,16 @@
          // Carregar sessões para o filtro
          async function loadSessionsForFilter() {
              try {
-                 if (!supabase) return;
+                if (!supabaseClient) return;
 
-                const { data: sessions, error } = await supabaseClient
+                let query = supabaseClient
                     .from('counting_sessions')
                     .select('id, session_name')
-                    .eq('id_empresa', currentEmpresa.id)
+                    .eq('id_empresa', currentEmpresa.id);
+                if (currentUser?.role !== 'admin') {
+                    query = query.eq('id_usuario', currentUser.id);
+                }
+                const { data: sessions, error } = await query
                     .order('id', { ascending: false });
 
                  if (error) {
@@ -5801,12 +5908,16 @@
              showToast('Funcionalidade de edição em desenvolvimento', 'info');
          }
 
-         async function deleteProduct(productId) {
-             if (!confirm('Tem certeza que deseja excluir este produto?')) {
-                 return;
-             }
+        async function deleteProduct(productId) {
+            if (!confirm('Tem certeza que deseja excluir este produto?')) {
+                return;
+            }
 
-             try {
+            try {
+                if (!currentUser || currentUser.role !== 'admin') {
+                    showToast('Permissão negada', 'error');
+                    return;
+                }
                 if (!supabaseClient) {
                     showToast('Conexão com banco de dados indisponível', 'error');
                     return;
@@ -5835,20 +5946,25 @@
          // Exportar produtos
          async function exportProducts() {
              try {
-                if (!supabaseClient) {
-                    showToast('Conexão com banco de dados indisponível', 'error');
-                    return;
-                }
+            if (!supabaseClient) {
+                showToast('Conexão com banco de dados indisponível', 'error');
+                return;
+            }
+            if (!currentEmpresa) {
+                showToast('Empresa não definida no contexto', 'error');
+                return;
+            }
 
-                // Buscar todos os produtos (sem paginação para exportação)
-                let query = supabaseClient
-                    .from('products')
-                    .select('*');
+            // Buscar todos os produtos (sem paginação para exportação)
+            let query = supabaseClient
+                .from('products')
+                .select('*, counting_sessions!inner(id_empresa)')
+                .eq('counting_sessions.id_empresa', currentEmpresa.id);
 
-                 // Aplicar os mesmos filtros da visualização
-                 if (productsFilters.search) {
-                     query = query.or(`codigo.ilike.%${productsFilters.search}%,descricao.ilike.%${productsFilters.search}%`);
-                 }
+             // Aplicar os mesmos filtros da visualização
+             if (productsFilters.search) {
+                 query = query.or(`codigo.ilike.%${productsFilters.search}%,descricao.ilike.%${productsFilters.search}%`);
+             }
 
                  if (productsFilters.session_id) {
                      query = query.eq('session_id', productsFilters.session_id);
@@ -6148,18 +6264,22 @@
          // Carregar estatísticas
          async function loadStatistics() {
              try {
-                 if (!supabase) {
-                     showToast('Conexão com banco de dados indisponível', 'error');
-                     return;
-                 }
+                if (!supabaseClient) {
+                    showToast('Conexão com banco de dados indisponível', 'error');
+                    return;
+                }
+                if (!currentEmpresa) {
+                    showToast('Empresa não definida no contexto', 'error');
+                    return;
+                }
 
-                 // Construir query base com join para obter dados das sessões
-                 let query = supabase
-                     .from('products')
-                     .select(`
-                         *,
-                        counting_sessions!inner(session_name, id_usuario, id_empresa)
-                     `, { count: 'exact' });
+                // Construir query base com join para obter dados das sessões
+                let query = supabaseClient
+                    .from('products')
+                    .select(`
+                        *,
+                       counting_sessions!inner(session_name, id_usuario, id_empresa)
+                    `, { count: 'exact' });
 
                  // Aplicar filtros
                  if (statisticsFilters.session_id) {
@@ -6309,9 +6429,14 @@
          // Carregar sessões para filtro de estatísticas
          async function loadStatisticsSessions() {
              try {
-                const { data: sessions, error } = await supabaseClient
+                let query = supabaseClient
                     .from('counting_sessions')
                     .select('id, session_name')
+                    .eq('id_empresa', currentEmpresa.id);
+                if (currentUser?.role !== 'admin') {
+                    query = query.eq('id_usuario', currentUser.id);
+                }
+                const { data: sessions, error } = await query
                     .order('created_at', { ascending: false });
 
                  if (error) throw error;
