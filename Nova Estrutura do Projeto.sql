@@ -228,17 +228,27 @@ alter table public.usuarios enable row level security;
 drop policy if exists usuarios_select_self on public.usuarios;
 create policy usuarios_select_self on public.usuarios for select using (auth.uid() = auth_user_id);
 drop policy if exists usuarios_select_admin_company on public.usuarios;
-create policy usuarios_select_admin_company on public.usuarios
-for select
-using (
-  exists (
+-- Helper function to avoid recursion in policies
+create or replace function public.is_admin_for_empresa(target_id_empresa bigint)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
     select 1
     from public.usuarios u
     where u.auth_user_id = auth.uid()
       and u.role = 'admin'
-      and u.id_empresa = public.usuarios.id_empresa
-  )
-);
+      and u.id_empresa = target_id_empresa
+  );
+$$;
+grant execute on function public.is_admin_for_empresa(bigint) to authenticated;
+
+create policy usuarios_select_admin_company on public.usuarios
+for select
+using (is_admin_for_empresa(id_empresa));
 grant usage on schema public to authenticated;
 grant select on table public.usuarios to authenticated;
 
@@ -359,3 +369,94 @@ as $$
   order by u.nome
 $$;
 grant execute on function public.get_usuarios_da_empresa() to authenticated;
+
+alter table public.counting_sessions enable row level security;
+drop policy if exists counting_sessions_select_company on public.counting_sessions;
+create policy counting_sessions_select_company on public.counting_sessions
+for select
+using (
+  exists (
+    select 1
+    from public.usuarios u
+    where u.auth_user_id = auth.uid()
+      and u.id_empresa = public.counting_sessions.id_empresa
+  )
+);
+
+drop policy if exists counting_sessions_modify_owner_or_admin on public.counting_sessions;
+create policy counting_sessions_modify_owner_or_admin on public.counting_sessions
+for insert
+with check (
+  (
+    exists (
+      select 1
+      from public.usuarios u
+      where u.auth_user_id = auth.uid()
+        and u.id = public.counting_sessions.id_usuario
+        and u.id_empresa = public.counting_sessions.id_empresa
+    )
+  )
+  or is_admin_for_empresa(public.counting_sessions.id_empresa)
+);
+
+create policy counting_sessions_update_owner_or_admin on public.counting_sessions
+for update
+using (
+  (
+    exists (
+      select 1
+      from public.usuarios u
+      where u.auth_user_id = auth.uid()
+        and u.id = public.counting_sessions.id_usuario
+        and u.id_empresa = public.counting_sessions.id_empresa
+    )
+  )
+  or is_admin_for_empresa(public.counting_sessions.id_empresa)
+);
+
+create policy counting_sessions_delete_owner_or_admin on public.counting_sessions
+for delete
+using (
+  (
+    exists (
+      select 1
+      from public.usuarios u
+      where u.auth_user_id = auth.uid()
+        and u.id = public.counting_sessions.id_usuario
+        and u.id_empresa = public.counting_sessions.id_empresa
+    )
+  )
+  or is_admin_for_empresa(public.counting_sessions.id_empresa)
+);
+
+grant select, insert, update, delete on table public.counting_sessions to authenticated;
+
+create or replace function public.create_counting_session(
+  p_id_usuario bigint,
+  p_id_empresa bigint,
+  p_session_name text,
+  p_description text,
+  p_count_type text,
+  p_arquivo_uploaded text default null
+)
+returns public.counting_sessions
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_row public.counting_sessions;
+begin
+  insert into public.counting_sessions(
+    id_usuario, id_empresa, session_name, description, count_type,
+    status, total_items, counted_items, scanned_items, arquivo_uploaded
+  )
+  values (
+    p_id_usuario, p_id_empresa, p_session_name, coalesce(p_description, ''),
+    p_count_type, 'waiting', 0, 0, 0, p_arquivo_uploaded
+  )
+  returning * into new_row;
+  return new_row;
+end;
+$$;
+grant execute on function public.create_counting_session(bigint, bigint, text, text, text) to authenticated;
