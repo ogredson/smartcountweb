@@ -5806,17 +5806,26 @@
                  const to = from + productsPerPage - 1;
                  query = query.range(from, to);
 
-                 const { data: products, error, count } = await query;
+                const { data: products, error, count } = await query;
 
-                 if (error) {
-                     console.error('Erro ao carregar produtos:', error);
-                     showToast('Erro ao carregar produtos: ' + error.message, 'error');
-                     return;
-                 }
+                if (error) {
+                    console.error('Erro ao carregar produtos:', error);
+                    const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
+                        p_session_id: productsFilters.session_id || null
+                    });
+                    if (rpcErr) {
+                        showToast('Erro ao carregar produtos: ' + error.message, 'error');
+                        return;
+                    }
+                    totalProducts = (productsRpc || []).length;
+                    displayProducts(productsRpc || []);
+                    updateProductsPagination();
+                    return;
+                }
 
-                 totalProducts = count || 0;
-                 displayProducts(products || []);
-                 updateProductsPagination();
+                totalProducts = count || 0;
+                displayProducts(products || []);
+                updateProductsPagination();
 
              } catch (error) {
                  console.error('Erro ao carregar produtos:', error);
@@ -5908,14 +5917,26 @@
                 const { data: sessions, error } = await query
                     .order('id', { ascending: false });
 
-                 if (error) {
-                     console.error('Erro ao carregar sessões:', error);
-                     return;
-                 }
+                if (error) {
+                    const { data: sessionsRpc, error: rpcErr } = await supabaseClient.rpc('get_counting_sessions_for_current_user');
+                    if (rpcErr) {
+                        console.error('Erro ao carregar sessões:', error);
+                        return;
+                    }
+                    const sessionFilter = document.getElementById('session-filter');
+                    sessionFilter.innerHTML = '<option value="">Todas as Sessões</option>';
+                    (sessionsRpc || []).forEach(session => {
+                        const option = document.createElement('option');
+                        option.value = session.id;
+                        option.textContent = session.session_name || `Sessão ${session.id}`;
+                        sessionFilter.appendChild(option);
+                    });
+                    return;
+                }
 
-                 const sessionFilter = document.getElementById('session-filter');
-                 sessionFilter.innerHTML = '<option value="">Todas as Sessões</option>';
-                 
+                const sessionFilter = document.getElementById('session-filter');
+                sessionFilter.innerHTML = '<option value="">Todas as Sessões</option>';
+                
                  sessions.forEach(session => {
                      const option = document.createElement('option');
                      option.value = session.id;
