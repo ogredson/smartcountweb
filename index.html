@@ -4626,8 +4626,9 @@
                 if (currentUser?.role !== 'admin') {
                     query = query.eq('id_usuario', currentUser.id);
                 }
-                const { data: sessions, error } = await query
+                const { data, error } = await query
                     .order('created_at', { ascending: false });
+                let sessions = data || [];
                 if (error) {
                     const { data: sessionsRpc, error: rpcErr } = await supabaseClient.rpc('get_counting_sessions_for_current_user');
                     if (rpcErr) throw rpcErr;
