@@ -227,6 +227,18 @@ create unique index if not exists usuarios_auth_user_id_unique on public.usuario
 alter table public.usuarios enable row level security;
 drop policy if exists usuarios_select_self on public.usuarios;
 create policy usuarios_select_self on public.usuarios for select using (auth.uid() = auth_user_id);
+drop policy if exists usuarios_select_admin_company on public.usuarios;
+create policy usuarios_select_admin_company on public.usuarios
+for select
+using (
+  exists (
+    select 1
+    from public.usuarios u
+    where u.auth_user_id = auth.uid()
+      and u.role = 'admin'
+      and u.id_empresa = public.usuarios.id_empresa
+  )
+);
 grant usage on schema public to authenticated;
 grant select on table public.usuarios to authenticated;
 
@@ -323,3 +335,27 @@ as $$
 $$;
 grant execute on function public.get_empresa_for_current_user() to authenticated;
 grant select on table public.empresas to authenticated;
+
+create or replace function public.get_usuarios_da_empresa()
+returns table (
+  id bigint,
+  nome character varying(100)
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  with me as (
+    select id_empresa
+    from public.usuarios
+    where auth_user_id = auth.uid()
+    limit 1
+  )
+  select u.id, u.nome
+  from public.usuarios u
+  join me on me.id_empresa = u.id_empresa
+  where u.ativo = true
+  order by u.nome
+$$;
+grant execute on function public.get_usuarios_da_empresa() to authenticated;

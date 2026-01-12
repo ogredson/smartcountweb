@@ -5395,8 +5395,16 @@
                             .eq('id_empresa', currentEmpresa.id)
                             .eq('ativo', true)
                             .order('nome');
-                        if (error) throw error;
-                        availableUsers = (usuarios || []).map(u => ({ id: u.id, name: u.nome }));
+                        if (error || !usuarios || usuarios.length === 0) {
+                            const { data: usuariosRpc, error: rpcErr } = await supabaseClient.rpc('get_usuarios_da_empresa');
+                            if (!rpcErr && usuariosRpc && usuariosRpc.length > 0) {
+                                availableUsers = usuariosRpc.map(u => ({ id: u.id, name: u.nome }));
+                            } else {
+                                availableUsers = [{ id: currentUser.id, name: currentUser.nome }];
+                            }
+                        } else {
+                            availableUsers = (usuarios || []).map(u => ({ id: u.id, name: u.nome }));
+                        }
                     } else {
                         availableUsers = [{ id: currentUser.id, name: currentUser.nome }];
                     }
