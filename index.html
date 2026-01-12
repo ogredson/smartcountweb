@@ -2351,10 +2351,6 @@
 
                 <div id="login-form">
                     <div class="form-group">
-                        <label class="form-label" for="empresa-email">E-mail da Empresa</label>
-                        <input type="email" id="empresa-email" class="form-input" placeholder="E-mail cadastrado da empresa" />
-                    </div>
-                    <div class="form-group">
                         <label class="form-label" for="usuario-email">E-mail do Usuário</label>
                         <input type="email" id="usuario-email" class="form-input" placeholder="Seu e-mail de usuário" />
                     </div>
@@ -3668,11 +3664,10 @@
 
         async function handleLogin() {
             if (!supabaseClient) return showToast('SDK do Supabase indisponível.', 'error');
-            const empresaEmail = document.getElementById('empresa-email')?.value.trim();
             const usuarioEmail = document.getElementById('usuario-email')?.value.trim();
             const password = document.getElementById('password')?.value;
-            if (!empresaEmail || !usuarioEmail || !password) {
-                return showAuthMessage('Por favor, informe empresa, usuário e senha.', 'error');
+            if (!usuarioEmail || !password) {
+                return showAuthMessage('Por favor, informe usuário e senha.', 'error');
             }
             const loginBtn = document.getElementById('login-btn');
             if (loginBtn) {
@@ -3680,35 +3675,70 @@
                 loginBtn.disabled = true;
             }
             try {
-                const { data: empresa, error: empresaError } = await supabaseClient
-                    .from('empresas')
-                    .select('*')
-                    .eq('email', empresaEmail)
-                    .single();
-                if (empresaError || !empresa) {
-                    throw new Error('Empresa não encontrada.');
+                const { data: signInData, error: authError } = await supabaseClient.auth.signInWithPassword({
+                    email: usuarioEmail,
+                    password
+                });
+                if (authError || !signInData?.user) {
+                    throw new Error('Falha na autenticação. Verifique e-mail e senha.');
                 }
-                if (empresa.ativo === false) {
-                    throw new Error('Empresa inativa.');
-                }
-                const { data: usuario, error: usuarioError } = await supabaseClient
+                const authUserId = signInData.user.id;
+                let usuario = null;
+                let usuarioError = null;
+                const respPerfil = await supabaseClient
                     .from('usuarios')
                     .select('*')
-                    .eq('email', usuarioEmail)
-                    .eq('id_empresa', empresa.id)
+                    .eq('auth_user_id', authUserId)
                     .single();
+                usuario = respPerfil.data;
+                usuarioError = respPerfil.error;
                 if (usuarioError || !usuario) {
-                    throw new Error('Usuário não encontrado para a empresa.');
+                    const { data: rpcData, error: rpcError } = await supabaseClient.rpc('get_usuario_perfil');
+                    if (rpcError || !rpcData || (Array.isArray(rpcData) && rpcData.length === 0)) {
+                        const authEmail = signInData.user.email;
+                        const { data: usuarioByEmail, error: usuarioByEmailError } = await supabaseClient
+                            .from('usuarios')
+                            .select('*')
+                            .eq('email', authEmail)
+                            .single();
+                        if (usuarioByEmailError || !usuarioByEmail) {
+                            throw new Error('Perfil de usuário não encontrado. Vincule auth_user_id ao usuário em usuarios.');
+                        }
+                        usuario = usuarioByEmail;
+                    } else {
+                        usuario = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+                    }
+                }
+                if (!usuario) {
+                    const authEmail = signInData.user.email;
+                    const { data: usuarioByEmail, error: usuarioByEmailError } = await supabaseClient
+                        .from('usuarios')
+                        .select('*')
+                        .eq('email', authEmail)
+                        .single();
+                    if (usuarioByEmailError || !usuarioByEmail) {
+                        throw new Error('Perfil de usuário não encontrado. Vincule auth_user_id ao usuário em usuarios.');
+                    }
+                    usuario = usuarioByEmail;
                 }
                 if (usuario.ativo === false) {
                     throw new Error('Usuário inativo.');
                 }
-                const senhaInformada = (password || '').trim();
-                const senhaBanco = (usuario.senha || '').trim();
-                if (senhaBanco !== senhaInformada) {
-                    throw new Error('Senha inválida.');
+                const { data: empresa, error: empErr2 } = await supabaseClient
+                    .from('empresas')
+                    .select('*')
+                    .eq('id', usuario.id_empresa)
+                    .single();
+                if (empErr2 || !empresa) {
+                    const { data: empresaRpc, error: empRpcErr } = await supabaseClient.rpc('get_empresa_for_current_user');
+                    if (empRpcErr || !empresaRpc || (Array.isArray(empresaRpc) && empresaRpc.length === 0)) {
+                        throw new Error('Empresa não encontrada para o usuário.');
+                    }
+                    currentEmpresa = Array.isArray(empresaRpc) ? empresaRpc[0] : empresaRpc;
+                } else {
+                    currentEmpresa = empresa;
                 }
-                currentEmpresa = empresa;
+                if (currentEmpresa.ativo === false) throw new Error('Empresa inativa.');
                 currentUser = usuario;
                 showMainApp();
                 updateUserInfo();
@@ -3728,15 +3758,16 @@
 
          async function handleRegister() {}
 
-         async function handleLogout() {
-             stopAutoSync();
-             currentUser = null;
-             currentEmpresa = null;
-             currentSession = null;
-             products = [];
-             scans = [];
-             showAuthSection();
-         }
+        async function handleLogout() {
+            try { await supabaseClient.auth.signOut(); } catch (e) {}
+            stopAutoSync();
+            currentUser = null;
+            currentEmpresa = null;
+            currentSession = null;
+            products = [];
+            scans = [];
+            showAuthSection();
+        }
 
          function showAuthMessage(message, type) {
              const authMessage = document.getElementById('auth-message');
@@ -3747,48 +3778,50 @@
              }
          }
 
-         function showToast(message, type = 'info', duration = 5000) {
-             const toastContainer = document.getElementById('toast-container');
-             if (!toastContainer) return;
+        function showToast(message, type = 'info', duration = 5000) {
+            const toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) return;
 
-             const toast = document.createElement('div');
-             toast.className = 'toast';
+            const toast = document.createElement('div');
+            toast.className = 'toast';
              
-             const iconMap = {
-                 success: 'fas fa-check-circle',
-                 error: 'fas fa-exclamation-circle',
-                 warning: 'fas fa-exclamation-triangle',
-                 info: 'fas fa-info-circle'
-             };
+            const iconMap = {
+                success: 'fas fa-check-circle',
+                error: 'fas fa-exclamation-circle',
+                warning: 'fas fa-exclamation-triangle',
+                info: 'fas fa-info-circle'
+            };
 
-             toast.innerHTML = `
-                 <div class="toast-header">
-                     <div class="toast-title">
-                         <i class="${iconMap[type] || iconMap.info}"></i>
-                         ${type.charAt(0).toUpperCase() + type.slice(1)}
-                     </div>
-                     <button class="toast-close">&times;</button>
-                 </div>
-                 <div class="toast-body">${message}</div>
-             `;
+            toast.innerHTML = `
+                <div class="toast-header">
+                    <div class="toast-title">
+                        <i class="${iconMap[type] || iconMap.info}"></i>
+                        ${type.charAt(0).toUpperCase() + type.slice(1)}
+                    </div>
+                    <button class="toast-close">&times;</button>
+                </div>
+                <div class="toast-body"></div>
+            `;
 
-             toastContainer.appendChild(toast);
+            toastContainer.appendChild(toast);
+            const bodyEl = toast.querySelector('.toast-body');
+            if (bodyEl) bodyEl.textContent = String(message || '');
 
-             // Show toast
-             setTimeout(() => toast.classList.add('show'), 100);
+            // Show toast
+            setTimeout(() => toast.classList.add('show'), 100);
 
-             // Auto remove
-             setTimeout(() => {
-                 toast.classList.remove('show');
-                 setTimeout(() => toast.remove(), 300);
-             }, duration);
+            // Auto remove
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
 
-             // Manual close
-             toast.querySelector('.toast-close')?.addEventListener('click', () => {
-                 toast.classList.remove('show');
-                 setTimeout(() => toast.remove(), 300);
-             });
-         }
+            // Manual close
+            toast.querySelector('.toast-close')?.addEventListener('click', () => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            });
+        }
 
          function toggleCountType() {
             const countType = document.getElementById('count-type')?.value;
@@ -4212,39 +4245,40 @@
              }
          }
 
-         function renderProducts() {
-             const productsList = document.getElementById('products-list');
-             if (!productsList) return;
+        function renderProducts() {
+            const productsList = document.getElementById('products-list');
+            if (!productsList) return;
 
-             if (products.length === 0) {
-                 productsList.innerHTML = `
-                     <div class="empty-state">
-                         <i class="fas fa-boxes"></i>
-                         <h3>Nenhum produto encontrado</h3>
-                         <p>Importe um arquivo CSV para visualizar os produtos</p>
-                     </div>
-                 `;
-                 return;
-             }
+            if (products.length === 0) {
+                productsList.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-boxes"></i>
+                        <h3>Nenhum produto encontrado</h3>
+                        <p>Importe um arquivo CSV para visualizar os produtos</p>
+                    </div>
+                `;
+                return;
+            }
 
-             const productsHtml = products.map(product => `
-                 <div class="product-item ${product.is_counted ? 'counted' : ''}">
-                     <div class="product-info">
-                         <div class="product-code">${product.codigo}</div>
-                         <div class="product-description">${product.descricao}</div>
-                     </div>
-                     <div class="product-quantities">
-                         <span class="quantity-label">Atual: ${product.quantidade_atual}</span>
-                         <span class="quantity-label counted">Contado: ${product.quantidade_contada}</span>
-                     </div>
-                     <div class="product-status">
-                         ${product.is_counted ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-circle"></i>'}
-                     </div>
-                 </div>
-             `).join('');
+            const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+            const productsHtml = products.map(product => `
+                <div class="product-item ${product.is_counted ? 'counted' : ''}">
+                    <div class="product-info">
+                        <div class="product-code">${esc(product.codigo)}</div>
+                        <div class="product-description">${esc(product.descricao)}</div>
+                    </div>
+                    <div class="product-quantities">
+                        <span class="quantity-label">Atual: ${product.quantidade_atual}</span>
+                        <span class="quantity-label counted">Contado: ${product.quantidade_contada}</span>
+                    </div>
+                    <div class="product-status">
+                        ${product.is_counted ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-circle"></i>'}
+                    </div>
+                </div>
+            `).join('');
 
-             productsList.innerHTML = productsHtml;
-         }
+            productsList.innerHTML = productsHtml;
+        }
 
          async function exportData(format = 'csv', type = 'grouped') {
              if (!currentSession) return showToast('Nenhuma sessão ativa para exportar.', 'error');
@@ -4351,17 +4385,17 @@
                      return;
                  }
 
-                 const historyHtml = sessions.map(session => `
-                     <div class="history-item">
-                         <div class="history-info">
-                            <div class="history-device">
-                                <i class="fas fa-folder"></i>
-                                ${session.session_name || 'Sessão'}
+                const historyHtml = sessions.map(session => `
+                    <div class="history-item">
+                        <div class="history-info">
+                           <div class="history-device">
+                               <i class="fas fa-folder"></i>
+                                ${String(session.session_name || 'Sessão').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
                             </div>
-                             <div class="history-type">${session.count_type === 'normal' ? 'Contagem com Arquivo' : 'Contagem Avulsa'}</div>
-                             <div class="history-date">${new Date(session.created_at).toLocaleString()}</div>
-                         </div>
-                         <div class="history-stats">
+                            <div class="history-type">${session.count_type === 'normal' ? 'Contagem com Arquivo' : 'Contagem Avulsa'}</div>
+                            <div class="history-date">${new Date(session.created_at).toLocaleString()}</div>
+                        </div>
+                        <div class="history-stats">
                              <span class="stat">Total: ${session.total_items || 0}</span>
                              <span class="stat">Contados: ${session.counted_items || 0}</span>
                              <span class="stat">Scans: ${session.scanned_items || 0}</span>
@@ -4454,18 +4488,19 @@
              const endIndex = startIndex + sessionsPerPage;
              const paginatedSessions = filteredSessions.slice(startIndex, endIndex);
 
-             tableBody.innerHTML = paginatedSessions.map(session => {
-                    const progress = session.total_items > 0 ? Math.round((session.counted_items / session.total_items) * 100) : 0;
-                    const userName = session.user_name || '-';
-                    const sessionName = session.session_name || 'N/A';
-                    const createdDate = new Date(session.created_at).toLocaleDateString('pt-BR');
-                    const createdTime = new Date(session.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            tableBody.innerHTML = paginatedSessions.map(session => {
+                   const progress = session.total_items > 0 ? Math.round((session.counted_items / session.total_items) * 100) : 0;
+                   const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+                   const userName = esc(session.user_name || '-');
+                   const sessionName = esc(session.session_name || 'N/A');
+                   const createdDate = new Date(session.created_at).toLocaleDateString('pt-BR');
+                   const createdTime = new Date(session.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-                return `
-                     <tr>
-                         <td>${session.id}</td>
-                         <td>${sessionName}</td>
-                         <td>${userName}</td>
+               return `
+                    <tr>
+                        <td>${session.id}</td>
+                        <td>${sessionName}</td>
+                        <td>${userName}</td>
                          <td><span style="text-transform: capitalize;">${session.count_type}</span></td>
                          <td>
                              <span class="status-badge ${session.status}">
@@ -5774,55 +5809,56 @@
          }
 
          // Exibir produtos na tabela
-         function displayProducts(products) {
-             const tbody = document.getElementById('products-table-body');
-             const emptyState = document.getElementById('products-empty-state');
-             const tableContainer = document.querySelector('#produtos-page .table-container');
+        function displayProducts(products) {
+            const tbody = document.getElementById('products-table-body');
+            const emptyState = document.getElementById('products-empty-state');
+            const tableContainer = document.querySelector('#produtos-page .table-container');
 
-             if (!products || products.length === 0) {
-                 tbody.innerHTML = '';
-                 tableContainer.style.display = 'none';
-                 emptyState.classList.remove('hidden');
-                 return;
-             }
+            if (!products || products.length === 0) {
+                tbody.innerHTML = '';
+                tableContainer.style.display = 'none';
+                emptyState.classList.remove('hidden');
+                return;
+            }
 
-             tableContainer.style.display = 'block';
-             emptyState.classList.add('hidden');
+            tableContainer.style.display = 'block';
+            emptyState.classList.add('hidden');
 
-             tbody.innerHTML = products.map(product => {
-                 const statusBadge = product.is_counted 
-                     ? '<span class="badge badge-success">Contado</span>'
-                     : '<span class="badge badge-warning">Pendente</span>';
-                 
-                 const createdAt = new Date(product.created_at).toLocaleDateString('pt-BR');
-                 const sessionName = 'Sessão ' + (product.session_id || 'N/A');
+            const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+            tbody.innerHTML = products.map(product => {
+                const statusBadge = product.is_counted 
+                    ? '<span class="badge badge-success">Contado</span>'
+                    : '<span class="badge badge-warning">Pendente</span>';
+                
+                const createdAt = new Date(product.created_at).toLocaleDateString('pt-BR');
+                const sessionName = 'Sessão ' + esc(product.session_id || 'N/A');
 
-                 return `
-                     <tr>
-                         <td><strong>${product.codigo}</strong></td>
-                         <td>${product.descricao}</td>
-                         <td>${product.localizacao || '-'}</td>
-                         <td class="text-center">${product.quantidade_atual || 0}</td>
-                         <td class="text-center">${product.quantidade_contada || 0}</td>
-                         <td class="text-center">${product.scanned_qty || 0}</td>
-                         <td class="text-center">${statusBadge}</td>
-                         <td class="text-center">${createdAt}</td>
-                         <td class="text-center">
-                             <div class="action-buttons">
-                                 <button class="action-btn view" onclick="viewProduct('${product.id}')" title="Visualizar">
-                                     <i class="fas fa-eye"></i>
-                                 </button>
-                                 <button class="action-btn edit" onclick="editProduct('${product.id}')" title="Editar">
-                                     <i class="fas fa-edit"></i>
-                                 </button>
-                                 <button class="action-btn delete" onclick="deleteProduct('${product.id}')" title="Excluir">
-                                     <i class="fas fa-trash"></i>
-                                 </button>
-                             </div>
-                         </td>
-                     </tr>
-                 `;
-             }).join('');
+                return `
+                    <tr>
+                        <td><strong>${esc(product.codigo)}</strong></td>
+                        <td>${esc(product.descricao)}</td>
+                        <td>${esc(product.localizacao || '-')}</td>
+                        <td class="text-center">${product.quantidade_atual || 0}</td>
+                        <td class="text-center">${product.quantidade_contada || 0}</td>
+                        <td class="text-center">${product.scanned_qty || 0}</td>
+                        <td class="text-center">${statusBadge}</td>
+                        <td class="text-center">${createdAt}</td>
+                        <td class="text-center">
+                            <div class="action-buttons">
+                            <button class="action-btn view" onclick="viewProduct('${product.id}')" title="Visualizar">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="action-btn edit" onclick="editProduct('${product.id}')" title="Editar">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="action-btn delete" onclick="deleteProduct('${product.id}')" title="Excluir">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
          }
 
          // Atualizar informações de paginação
@@ -6452,13 +6488,20 @@
 
                  if (error) throw error;
 
-                 const sessionFilter = document.getElementById('statistics-session-filter');
-                 if (sessionFilter && sessions) {
-                     sessionFilter.innerHTML = '<option value="">Todas as Sessões</option>';
-                     sessions.forEach(session => {
-                         sessionFilter.innerHTML += `<option value="${session.id}">${session.session_name}</option>`;
-                     });
-                 }
+                const sessionFilter = document.getElementById('statistics-session-filter');
+                if (sessionFilter && sessions) {
+                    sessionFilter.innerHTML = '';
+                    const optAll = document.createElement('option');
+                    optAll.value = '';
+                    optAll.textContent = 'Todas as Sessões';
+                    sessionFilter.appendChild(optAll);
+                    sessions.forEach(session => {
+                        const opt = document.createElement('option');
+                        opt.value = session.id;
+                        opt.textContent = String(session.session_name || `Sessão ${session.id}`);
+                        sessionFilter.appendChild(opt);
+                    });
+                }
              } catch (error) {
                  console.error('Erro ao carregar sessões:', error);
              }

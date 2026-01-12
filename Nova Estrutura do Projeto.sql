@@ -221,3 +221,105 @@ create table public.usuarios (
   constraint usuarios_id_empresa_fkey foreign KEY (id_empresa) references empresas (id),
   constraint usuarios_role_check check ((role = any (array['user'::text, 'admin'::text])))
 ) TABLESPACE pg_default;
+
+alter table public.usuarios add column if not exists auth_user_id uuid;
+create unique index if not exists usuarios_auth_user_id_unique on public.usuarios(auth_user_id) where auth_user_id is not null;
+alter table public.usuarios enable row level security;
+drop policy if exists usuarios_select_self on public.usuarios;
+create policy usuarios_select_self on public.usuarios for select using (auth.uid() = auth_user_id);
+grant usage on schema public to authenticated;
+grant select on table public.usuarios to authenticated;
+
+create or replace function public.get_usuario_perfil()
+returns table (
+  id bigint,
+  nome character varying(100),
+  email character varying(100),
+  ativo boolean,
+  funcao character varying(50),
+  created_at timestamp with time zone,
+  fone_celular text,
+  role text,
+  id_empresa bigint,
+  auth_user_id uuid
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select 
+    id,
+    nome,
+    email,
+    ativo,
+    funcao,
+    created_at,
+    fone_celular,
+    role,
+    id_empresa,
+    auth_user_id
+  from public.usuarios
+  where auth_user_id = auth.uid()
+  limit 1
+$$;
+grant execute on function public.get_usuario_perfil() to authenticated;
+
+create or replace function public.get_empresa_for_current_user()
+returns table (
+  id bigint,
+  nome character varying(255),
+  email character varying(255),
+  endereco character varying(255),
+  cnpj character(14),
+  cpf character(11),
+  inscricao_estadual character varying(50),
+  tipo_pessoa character varying(20),
+  numero integer,
+  complemento character varying(100),
+  cep character varying(10),
+  uf character varying(2),
+  cidade character varying(100),
+  contatos character varying(200),
+  telefone character varying(20),
+  celular character varying(20),
+  website character varying(100),
+  senha text,
+  mensagem text,
+  import_limit smallint,
+  ativo boolean
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select 
+    e.id,
+    e.nome,
+    e.email,
+    e.endereco,
+    e.cnpj,
+    e.cpf,
+    e.inscricao_estadual,
+    e.tipo_pessoa,
+    e.numero,
+    e.complemento,
+    e.cep,
+    e.uf,
+    e.cidade,
+    e.contatos,
+    e.telefone,
+    e.celular,
+    e.website,
+    e.senha,
+    e.mensagem,
+    e.import_limit,
+    e.ativo
+  from public.empresas e
+  join public.usuarios u on u.id_empresa = e.id
+  where u.auth_user_id = auth.uid()
+  limit 1
+$$;
+grant execute on function public.get_empresa_for_current_user() to authenticated;
+grant select on table public.empresas to authenticated;
