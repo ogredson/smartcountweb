@@ -3740,6 +3740,7 @@
                 }
                 if (currentEmpresa.ativo === false) throw new Error('Empresa inativa.');
                 currentUser = usuario;
+                try { await supabaseClient.rpc('upsert_user_tenant'); } catch (e) {}
                 showMainApp();
                 updateUserInfo();
                 await loadUserData();
@@ -4627,7 +4628,11 @@
                 }
                 const { data: sessions, error } = await query
                     .order('created_at', { ascending: false });
-                if (error) throw error;
+                if (error) {
+                    const { data: sessionsRpc, error: rpcErr } = await supabaseClient.rpc('get_counting_sessions_for_current_user');
+                    if (rpcErr) throw rpcErr;
+                    sessions = sessionsRpc || [];
+                }
                 
                 const userIds = Array.from(new Set((sessions || []).map(s => s.id_usuario).filter(Boolean)));
                 let usersMap = {};
@@ -6362,11 +6367,25 @@
                 query = query.eq('counting_sessions.id_empresa', currentEmpresa.id);
                 const { data: products, error, count } = await query;
 
-                 if (error) {
-                     console.error('Erro ao carregar estatísticas:', error);
-                     showToast('Erro ao carregar estatísticas: ' + error.message, 'error');
-                     return;
-                 }
+                if (error) {
+                    const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
+                        p_session_id: statisticsFilters.session_id || null
+                    });
+                    if (rpcErr) {
+                        console.error('Erro ao carregar estatísticas:', error);
+                        showToast('Erro ao carregar estatísticas: ' + error.message, 'error');
+                        return;
+                    }
+                    const productsAdapted = (productsRpc || []).map(p => ({
+                        ...p,
+                        counting_sessions: { session_name: p.counting_session_name }
+                    }));
+                    totalStatistics = productsAdapted.length;
+                    displayStatistics(productsAdapted);
+                    updateStatisticsPagination();
+                    updateStatisticsSummary(productsAdapted);
+                    return;
+                }
 
                  totalStatistics = count || 0;
                  displayStatistics(products || []);

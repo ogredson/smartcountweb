@@ -459,6 +459,90 @@ using (
 
 grant select, insert, update, delete on table public.counting_sessions to authenticated;
 
+create or replace function public.upsert_user_tenant()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_u record;
+begin
+  select id, id_empresa, role into v_u
+  from public.usuarios
+  where auth_user_id = auth.uid()
+  limit 1;
+
+  if v_u.id is not null then
+    insert into public.user_tenants(auth_user_id, id_usuario, id_empresa, role)
+    values (auth.uid(), v_u.id, v_u.id_empresa, v_u.role)
+    on conflict (auth_user_id) do update
+      set id_usuario = excluded.id_usuario,
+          id_empresa = excluded.id_empresa,
+          role = excluded.role;
+  end if;
+end;
+$$;
+grant execute on function public.upsert_user_tenant() to authenticated;
+
+create or replace function public.get_counting_sessions_for_current_user()
+returns setof public.counting_sessions
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select cs.*
+  from public.counting_sessions cs
+  join public.user_tenants t
+    on t.auth_user_id = auth.uid()
+   and t.id_empresa = cs.id_empresa
+  where t.role = 'admin' or cs.id_usuario = t.id_usuario
+  order by cs.created_at desc
+$$;
+grant execute on function public.get_counting_sessions_for_current_user() to authenticated;
+
+create or replace function public.get_products_for_empresa(p_session_id uuid default null)
+returns table (
+  codigo text,
+  descricao text,
+  quantidade_contada integer,
+  scanned_qty integer,
+  is_counted boolean,
+  expected_qty integer,
+  session_id uuid,
+  created_at timestamp with time zone,
+  counting_session_name text
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  with me as (
+    select id_empresa
+    from public.user_tenants
+    where auth_user_id = auth.uid()
+    limit 1
+  )
+  select 
+    p.codigo,
+    p.descricao,
+    p.quantidade_contada,
+    p.scanned_qty,
+    p.is_counted,
+    p.expected_qty,
+    p.session_id,
+    p.created_at,
+    cs.session_name as counting_session_name
+  from public.products p
+  join public.counting_sessions cs on cs.id = p.session_id
+  join me on me.id_empresa = cs.id_empresa
+  where (p_session_id is null or p.session_id = p_session_id)
+  order by p.created_at desc
+$$;
+grant execute on function public.get_products_for_empresa(uuid) to authenticated;
+
 create or replace function public.create_counting_session(
   p_id_usuario bigint,
   p_id_empresa bigint,
