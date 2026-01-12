@@ -459,4 +459,4 @@ begin
   return new_row;
 end;
 $$;
-grant execute on function public.create_counting_session(bigint, bigint, text, text, text) to authenticated;
+grant execute on function public.create_counting_session(bigint, bigint, text, text, text, text) to authenticated;
