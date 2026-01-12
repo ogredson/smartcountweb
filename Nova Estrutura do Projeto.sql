@@ -246,9 +246,7 @@ as $$
 $$;
 grant execute on function public.is_admin_for_empresa(bigint) to authenticated;
 
-create policy usuarios_select_admin_company on public.usuarios
-for select
-using (is_admin_for_empresa(id_empresa));
+drop policy if exists usuarios_select_admin_company on public.usuarios;
 grant usage on schema public to authenticated;
 grant select on table public.usuarios to authenticated;
 
@@ -370,16 +368,34 @@ as $$
 $$;
 grant execute on function public.get_usuarios_da_empresa() to authenticated;
 
+create table if not exists public.user_tenants (
+  auth_user_id uuid primary key,
+  id_usuario bigint not null,
+  id_empresa bigint not null,
+  role text not null default 'user'
+);
+create unique index if not exists user_tenants_auth_user_id_idx on public.user_tenants(auth_user_id);
+grant select on table public.user_tenants to authenticated;
+
+-- Backfill mapping from usuarios (execute once after deployment)
+insert into public.user_tenants(auth_user_id, id_usuario, id_empresa, role)
+select u.auth_user_id, u.id, u.id_empresa, u.role
+from public.usuarios u
+where u.auth_user_id is not null
+on conflict (auth_user_id) do update
+set id_usuario = excluded.id_usuario,
+    id_empresa = excluded.id_empresa,
+    role = excluded.role;
+
 alter table public.counting_sessions enable row level security;
 drop policy if exists counting_sessions_select_company on public.counting_sessions;
 create policy counting_sessions_select_company on public.counting_sessions
-for select
-using (
+for select using (
   exists (
     select 1
-    from public.usuarios u
-    where u.auth_user_id = auth.uid()
-      and u.id_empresa = public.counting_sessions.id_empresa
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.id_empresa = public.counting_sessions.id_empresa
   )
 );
 
@@ -387,46 +403,58 @@ drop policy if exists counting_sessions_modify_owner_or_admin on public.counting
 create policy counting_sessions_modify_owner_or_admin on public.counting_sessions
 for insert
 with check (
-  (
-    exists (
-      select 1
-      from public.usuarios u
-      where u.auth_user_id = auth.uid()
-        and u.id = public.counting_sessions.id_usuario
-        and u.id_empresa = public.counting_sessions.id_empresa
-    )
+  exists (
+    select 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.id_usuario = public.counting_sessions.id_usuario
+      and t.id_empresa = public.counting_sessions.id_empresa
   )
-  or is_admin_for_empresa(public.counting_sessions.id_empresa)
+  or exists (
+    select 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.role = 'admin'
+      and t.id_empresa = public.counting_sessions.id_empresa
+  )
 );
-
+drop policy if exists counting_sessions_update_owner_or_admin on public.counting_sessions;
 create policy counting_sessions_update_owner_or_admin on public.counting_sessions
 for update
 using (
-  (
-    exists (
-      select 1
-      from public.usuarios u
-      where u.auth_user_id = auth.uid()
-        and u.id = public.counting_sessions.id_usuario
-        and u.id_empresa = public.counting_sessions.id_empresa
-    )
+  exists (
+    select 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.id_usuario = public.counting_sessions.id_usuario
+      and t.id_empresa = public.counting_sessions.id_empresa
   )
-  or is_admin_for_empresa(public.counting_sessions.id_empresa)
+  or exists (
+    select 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.role = 'admin'
+      and t.id_empresa = public.counting_sessions.id_empresa
+  )
 );
 
 create policy counting_sessions_delete_owner_or_admin on public.counting_sessions
 for delete
 using (
-  (
-    exists (
-      select 1
-      from public.usuarios u
-      where u.auth_user_id = auth.uid()
-        and u.id = public.counting_sessions.id_usuario
-        and u.id_empresa = public.counting_sessions.id_empresa
-    )
+  exists (
+    select 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.id_usuario = public.counting_sessions.id_usuario
+      and t.id_empresa = public.counting_sessions.id_empresa
   )
-  or is_admin_for_empresa(public.counting_sessions.id_empresa)
+  or exists (
+    select 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.role = 'admin'
+      and t.id_empresa = public.counting_sessions.id_empresa
+  )
 );
 
 grant select, insert, update, delete on table public.counting_sessions to authenticated;

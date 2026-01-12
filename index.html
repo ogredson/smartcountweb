@@ -4632,12 +4632,14 @@
                 const userIds = Array.from(new Set((sessions || []).map(s => s.id_usuario).filter(Boolean)));
                 let usersMap = {};
                 if (userIds.length > 0) {
-                    const { data: usuarios } = await supabaseClient
-                        .from('usuarios')
-                        .select('id, nome')
-                        .eq('id_empresa', currentEmpresa.id)
-                        .in('id', userIds);
-                    (usuarios || []).forEach(u => { usersMap[u.id] = u.nome; });
+                    if (currentUser?.role === 'admin') {
+                        const { data: usuariosRpc, error: rpcErr } = await supabaseClient.rpc('get_usuarios_da_empresa');
+                        if (!rpcErr && usuariosRpc && usuariosRpc.length > 0) {
+                            (usuariosRpc || []).forEach(u => { usersMap[u.id] = u.nome; });
+                        }
+                    } else {
+                        usersMap[currentUser.id] = currentUser.nome;
+                    }
                 }
                 
                 allCountingSessions = (sessions || []).map(s => ({
