@@ -3346,31 +3346,59 @@
                     expected_qty: p.quantidade
                 }));
 
-                // Inserir produtos no Supabase
-                const { data, error } = await supabaseClient
-                    .from('products')
-                    .insert(productsToInsert)
-                    .select();
+                // Inserir produtos no Supabase com fallback via RPC
+                let insertData = null;
+                let insertError = null;
+                try {
+                    const payload = productsToInsert.map(p => ({
+                        codigo: p.codigo,
+                        descricao: p.descricao,
+                        localizacao: p.localizacao,
+                        expected_qty: p.expected_qty,
+                        quantidade_atual: p.quantidade_atual
+                    }));
+                    const { data: rpcIns, error: rpcErr } = await supabaseClient.rpc('insert_products_for_session', {
+                        p_session_id: sessionId,
+                        p_products: payload
+                    });
+                    insertData = rpcIns;
+                    insertError = rpcErr;
+                } catch (e) {
+                    const { data: insData, error: insErr } = await supabaseClient
+                        .from('products')
+                        .insert(productsToInsert)
+                        .select();
+                    insertData = insData;
+                    insertError = insErr;
+                }
 
-                if (error) {
-                    console.error('Erro ao inserir produtos:', error);
-                    showToast('Erro ao importar produtos: ' + error.message, 'error');
+                if (insertError) {
+                    console.error('Erro ao inserir produtos:', insertError);
+                    showToast('Erro ao importar produtos: ' + insertError.message, 'error');
                     return;
                 }
 
                 // Atualizar total de itens na sessão
-                const { error: updateError } = await supabaseClient
-                    .from('counting_sessions')
-                    .update({ 
-                        total_items: (session.total_items || 0) + products.length
-                    })
-                    .eq('id', sessionId);
+                let updateError = null;
+                try {
+                    const { error: rpcUpdErr } = await supabaseClient.rpc('update_session_total', { p_session_id: sessionId });
+                    updateError = rpcUpdErr;
+                } catch (e) {
+                    const { error: updErr } = await supabaseClient
+                        .from('counting_sessions')
+                        .update({ 
+                            total_items: (session.total_items || 0) + products.length
+                        })
+                        .eq('id', sessionId);
+                    updateError = updErr;
+                }
 
                 if (updateError) {
                     console.error('Erro ao atualizar sessão:', updateError);
                 }
 
-                showToast(`${products.length} produtos importados com sucesso para a sessão!`, 'success');
+                const insertedCount = Array.isArray(insertData) ? insertData.length : (products?.length || 0);
+                showToast(`${insertedCount} produtos importados com sucesso para a sessão!`, 'success');
                 
                 // Atualizar nome da sessão combinando com o nome do arquivo e salvar nome do arquivo
                 try {
@@ -5196,10 +5224,18 @@
                              console.log('Dados que serão enviados ao Supabase:', supabaseProducts);
                              console.log('Produtos com localização para Supabase:', supabaseProducts.filter(p => p.localizacao));
                              
+                            const payload = supabaseProducts.map(p => ({
+                                codigo: p.codigo,
+                                descricao: p.descricao,
+                                localizacao: p.localizacao,
+                                expected_qty: p.expected_qty,
+                                quantidade_atual: 0
+                            }));
                             const { data, error } = await supabaseClient
-                                .from('products')
-                                .insert(supabaseProducts)
-                                .select();
+                                .rpc('insert_products_for_session', {
+                                    p_session_id: sessionId,
+                                    p_products: payload
+                                });
 
                              if (error) {
                                  console.error('Erro detalhado do Supabase:', error);
@@ -5213,14 +5249,8 @@
                              
                              // Atualizar a sessão com o total correto de itens
                              console.log('Atualizando sessão:', sessionId, 'com total_items:', data.length);
-                            const { data: updateData, error: updateError } = await supabaseClient
-                                .from('counting_sessions')
-                                .update({ 
-                                    total_items: data.length,
-                                    status: 'waiting'
-                                })
-                                .eq('id', sessionId)
-                                .select();
+                           const { data: updateData, error: updateError } = await supabaseClient
+                               .rpc('update_session_total', { p_session_id: sessionId });
                              
                              if (updateError) {
                                  console.error('Erro ao atualizar sessão:', updateError);

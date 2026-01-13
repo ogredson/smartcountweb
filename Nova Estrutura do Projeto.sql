@@ -543,6 +543,53 @@ as $$
 $$;
 grant execute on function public.get_products_for_empresa(uuid) to authenticated;
 
+create or replace function public.insert_products_for_session(
+  p_session_id uuid,
+  p_products jsonb
+)
+returns setof public.products
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  with me as (
+    select id_empresa
+    from public.user_tenants
+    where auth_user_id = auth.uid()
+    limit 1
+  ),
+  sess as (
+    select cs.id
+    from public.counting_sessions cs
+    join me on me.id_empresa = cs.id_empresa
+    where cs.id = p_session_id
+    limit 1
+  ),
+  ins as (
+    insert into public.products (session_id, codigo, descricao, localizacao, expected_qty, quantidade_atual, quantidade_contada, is_counted, scanned_qty)
+    select p_session_id, rec.codigo, rec.descricao, nullif(rec.localizacao,''), coalesce(rec.expected_qty,0), coalesce(rec.quantidade_atual,0), 0, false, 0
+    from jsonb_to_recordset(p_products) as rec(codigo text, descricao text, localizacao text, expected_qty integer, quantidade_atual integer)
+    returning *
+  )
+  select * from ins;
+$$;
+grant execute on function public.insert_products_for_session(uuid, jsonb) to authenticated;
+
+create or replace function public.update_session_total(p_session_id uuid)
+returns void
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  update public.counting_sessions
+  set total_items = (
+    select count(*) from public.products where session_id = p_session_id
+  )
+  where id = p_session_id;
+$$;
+grant execute on function public.update_session_total(uuid) to authenticated;
 create or replace function public.create_counting_session(
   p_id_usuario bigint,
   p_id_empresa bigint,
