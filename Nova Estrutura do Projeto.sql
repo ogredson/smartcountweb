@@ -724,6 +724,36 @@ begin
 end;
 $$;
 grant execute on function public.delete_product(uuid) to authenticated;
+
+create or replace function public.get_dashboard_stats_for_current_user()
+returns table (
+  total integer,
+  counted integer,
+  scanned integer
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  with me as (
+    select id_empresa, id_usuario, role
+    from public.user_tenants
+    where auth_user_id = auth.uid()
+    limit 1
+  ),
+  sessions as (
+    select cs.id
+    from public.counting_sessions cs
+    join me on me.id_empresa = cs.id_empresa
+    where me.role = 'admin' or cs.id_usuario = me.id_usuario
+  )
+  select
+    coalesce((select count(*) from public.products p where p.session_id in (select id from sessions)), 0) as total,
+    coalesce((select count(*) from public.products p where p.session_id in (select id from sessions) and (p.is_counted = true or (p.quantidade_contada is not null and p.quantidade_contada > 0))), 0) as counted,
+    coalesce((select sum(p.scanned_qty) from public.products p where p.session_id in (select id from sessions)), 0) as scanned
+$$;
+grant execute on function public.get_dashboard_stats_for_current_user() to authenticated;
 create or replace function public.delete_counting_session(p_session_id uuid)
 returns void
 language plpgsql

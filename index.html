@@ -3982,35 +3982,39 @@
              const progress = document.getElementById('dashboard-progress');
              const progressBar = document.getElementById('dashboard-progress-bar');
 
-             let total = 0;
-             let counted = 0;
-             let scanned = 0;
+            let total = 0;
+            let counted = 0;
+            let scanned = 0;
 
             if (supabaseClient && currentUser && currentEmpresa) {
-                let query = supabaseClient
-                    .from('counting_sessions')
-                    .select('*')
-                    .eq('status', 'active')
-                    .eq('id_empresa', currentEmpresa.id);
-                if (currentUser?.role !== 'admin') {
-                    query = query.eq('id_usuario', currentUser.id);
+                const { data: stats, error: statsErr } = await supabaseClient.rpc('get_dashboard_stats_for_current_user');
+                if (!statsErr && stats && (Array.isArray(stats) ? stats.length > 0 : true)) {
+                    const s = Array.isArray(stats) ? stats[0] : stats;
+                    total = s.total || 0;
+                    counted = s.counted || 0;
+                    scanned = s.scanned || 0;
+                } else {
+                    let query = supabaseClient
+                        .from('counting_sessions')
+                        .select('*')
+                        .eq('id_empresa', currentEmpresa.id);
+                    if (currentUser?.role !== 'admin') {
+                        query = query.eq('id_usuario', currentUser.id);
+                    }
+                    const { data: sessions } = await query;
+                    if (sessions && sessions.length > 0) {
+                        for (const session of sessions) {
+                            total += session.total_items || 0;
+                            counted += session.counted_items || 0;
+                            scanned += session.scanned_items || 0;
+                        }
+                    }
                 }
-                const { data: activeSessions } = await query;
-
-                 if (activeSessions && activeSessions.length > 0) {
-                     // Somar dados de todas as sessões ativas
-                     for (const session of activeSessions) {
-                         total += session.total_items || 0;
-                         counted += session.counted_items || 0;
-                         scanned += session.scanned_items || 0;
-                     }
-                 }
-             } else {
-                 // Fallback para dados locais se não houver conexão
-                 total = currentSession?.total_items || products.length || 0;
-                 counted = currentSession?.counted_items || products.filter(p => p.is_counted).length || 0;
-                 scanned = currentSession?.scanned_items || 0;
-             }
+            } else {
+                total = currentSession?.total_items || products.length || 0;
+                counted = currentSession?.counted_items || products.filter(p => p.is_counted).length || 0;
+                scanned = currentSession?.scanned_items || 0;
+            }
 
              const progressPercent = total > 0 ? Math.round((counted / total) * 100) : 0;
 
@@ -6557,38 +6561,41 @@
          }
 
          // Carregar sessões para filtro de estatísticas
-         async function loadStatisticsSessions() {
-             try {
-                let query = supabaseClient
-                    .from('counting_sessions')
-                    .select('id, session_name')
-                    .eq('id_empresa', currentEmpresa.id);
-                if (currentUser?.role !== 'admin') {
-                    query = query.eq('id_usuario', currentUser.id);
+        async function loadStatisticsSessions() {
+            try {
+               const { data: sessionsRpc, error: rpcErr } = await supabaseClient.rpc('get_counting_sessions_for_current_user');
+                let sessions = sessionsRpc || [];
+                if (rpcErr) {
+                    let query = supabaseClient
+                        .from('counting_sessions')
+                        .select('id, session_name')
+                        .eq('id_empresa', currentEmpresa.id);
+                    if (currentUser?.role !== 'admin') {
+                        query = query.eq('id_usuario', currentUser.id);
+                    }
+                    const { data, error } = await query.order('created_at', { ascending: false });
+                    if (error) throw error;
+                    sessions = data || [];
                 }
-                const { data: sessions, error } = await query
-                    .order('created_at', { ascending: false });
-
-                 if (error) throw error;
 
                 const sessionFilter = document.getElementById('statistics-session-filter');
-                if (sessionFilter && sessions) {
+                if (sessionFilter) {
                     sessionFilter.innerHTML = '';
                     const optAll = document.createElement('option');
                     optAll.value = '';
                     optAll.textContent = 'Todas as Sessões';
                     sessionFilter.appendChild(optAll);
-                    sessions.forEach(session => {
+                    (sessions || []).forEach(session => {
                         const opt = document.createElement('option');
                         opt.value = session.id;
                         opt.textContent = String(session.session_name || `Sessão ${session.id}`);
                         sessionFilter.appendChild(opt);
                     });
                 }
-             } catch (error) {
-                 console.error('Erro ao carregar sessões:', error);
-             }
-         }
+            } catch (error) {
+                console.error('Erro ao carregar sessões:', error);
+            }
+        }
 
          // Event listeners para estatísticas
          function setupStatisticsEventListeners() {
