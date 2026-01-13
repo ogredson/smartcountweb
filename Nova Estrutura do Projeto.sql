@@ -550,7 +550,7 @@ create or replace function public.insert_products_for_session(
 returns setof public.products
 language sql
 security definer
-stable
+volatile
 set search_path = public
 as $$
   with me as (
@@ -580,7 +580,7 @@ create or replace function public.update_session_total(p_session_id uuid)
 returns void
 language sql
 security definer
-stable
+volatile
 set search_path = public
 as $$
   update public.counting_sessions
