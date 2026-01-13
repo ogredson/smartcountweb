@@ -597,6 +597,133 @@ as $$
 $$;
 grant execute on function public.update_session_total(uuid) to authenticated;
 
+create or replace function public.update_session_file_info(
+  p_session_id uuid,
+  p_file_name text,
+  p_session_name text default null
+)
+returns void
+language sql
+security definer
+volatile
+set search_path = public
+as $$
+  update public.counting_sessions cs
+  set 
+    arquivo_uploaded = p_file_name,
+    session_name = coalesce(p_session_name, cs.session_name)
+  from public.user_tenants t
+  where cs.id = p_session_id
+    and t.auth_user_id = auth.uid()
+    and t.id_empresa = cs.id_empresa;
+$$;
+grant execute on function public.update_session_file_info(uuid, text, text) to authenticated;
+alter table public.products enable row level security;
+drop policy if exists products_select_company on public.products;
+create policy products_select_company on public.products
+for select using (
+  exists (
+    select 1
+    from public.counting_sessions cs
+    join public.user_tenants t on t.auth_user_id = auth.uid()
+    where cs.id = public.products.session_id
+      and cs.id_empresa = t.id_empresa
+  )
+);
+
+drop policy if exists products_insert_session_company on public.products;
+create policy products_insert_session_company on public.products
+for insert
+with check (
+  exists (
+    select 1
+    from public.counting_sessions cs
+    join public.user_tenants t on t.auth_user_id = auth.uid()
+    where cs.id = public.products.session_id
+      and cs.id_empresa = t.id_empresa
+  )
+);
+
+drop policy if exists products_update_owner_or_admin on public.products;
+create policy products_update_owner_or_admin on public.products
+for update
+using (
+  exists (
+    select 1
+    from public.counting_sessions cs
+    join public.user_tenants t on t.auth_user_id = auth.uid()
+    where cs.id = public.products.session_id
+      and cs.id_empresa = t.id_empresa
+      and (t.role = 'admin' or cs.id_usuario = t.id_usuario)
+  )
+);
+
+drop policy if exists products_delete_owner_or_admin on public.products;
+create policy products_delete_owner_or_admin on public.products
+for delete
+using (
+  exists (
+    select 1
+    from public.counting_sessions cs
+    join public.user_tenants t on t.auth_user_id = auth.uid()
+    where cs.id = public.products.session_id
+      and cs.id_empresa = t.id_empresa
+      and (t.role = 'admin' or cs.id_usuario = t.id_usuario)
+  )
+);
+
+grant select, insert, update, delete on table public.products to authenticated;
+
+create or replace function public.delete_product(p_product_id uuid)
+returns void
+language plpgsql
+security definer
+volatile
+set search_path = public
+as $$
+declare
+  v_session uuid;
+  v_emp bigint;
+  v_owner bigint;
+  v_role text;
+begin
+  select p.session_id into v_session
+  from public.products p
+  where p.id = p_product_id;
+
+  if v_session is null then
+    raise exception 'Produto não encontrado';
+  end if;
+
+  select cs.id_empresa, cs.id_usuario into v_emp, v_owner
+  from public.counting_sessions cs
+  where cs.id = v_session;
+
+  select t.role into v_role
+  from public.user_tenants t
+  where t.auth_user_id = auth.uid()
+    and t.id_empresa = v_emp
+  limit 1;
+
+  if v_role is null then
+    raise exception 'Permissão negada';
+  end if;
+
+  if v_role <> 'admin' then
+    perform 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.id_usuario = v_owner
+      and t.id_empresa = v_emp;
+    if not found then
+      raise exception 'Permissão negada';
+    end if;
+  end if;
+
+  delete from public.products where id = p_product_id;
+end;
+$$;
+grant execute on function public.delete_product(uuid) to authenticated;
 create or replace function public.delete_counting_session(p_session_id uuid)
 returns void
 language plpgsql

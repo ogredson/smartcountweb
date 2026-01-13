@@ -3406,14 +3406,12 @@
                     const currentSessionName = session.session_name || 'Sessão';
                     const newSessionName = `${currentSessionName} (${nameWithoutExtension})`;
                     
-                    // Atualizar nome da sessão e arquivo_uploaded no Supabase
-                    const { error: nameUpdateError } = await supabaseClient
-                        .from('counting_sessions')
-                        .update({ 
-                            session_name: newSessionName,
-                            arquivo_uploaded: fileName
-                        })
-                        .eq('id', sessionId);
+                    // Atualizar nome da sessão e arquivo_uploaded via RPC
+                    const { error: nameUpdateError } = await supabaseClient.rpc('update_session_file_info', {
+                        p_session_id: sessionId,
+                        p_file_name: fileName,
+                        p_session_name: newSessionName
+                    });
                     
                     if (nameUpdateError) {
                         console.warn('Erro ao atualizar sessão:', nameUpdateError);
@@ -6044,15 +6042,12 @@
                     return;
                 }
 
-                const { error } = await supabaseClient
-                    .from('products')
-                    .delete()
-                    .eq('id', productId);
+                const { error } = await supabaseClient.rpc('delete_product', { p_product_id: productId });
 
-                 if (error) {
-                     console.error('Erro ao excluir produto:', error);
-                     showToast('Erro ao excluir produto: ' + error.message, 'error');
-                     return;
+                if (error) {
+                    console.error('Erro ao excluir produto:', error);
+                    showToast('Erro ao excluir produto: ' + error.message, 'error');
+                    return;
                  }
 
                  showToast('Produto excluído com sucesso!', 'success');
