@@ -504,8 +504,11 @@ grant execute on function public.get_counting_sessions_for_current_user() to aut
 
 create or replace function public.get_products_for_empresa(p_session_id uuid default null)
 returns table (
+  id uuid,
   codigo text,
   descricao text,
+  localizacao text,
+  quantidade_atual integer,
   quantidade_contada integer,
   scanned_qty integer,
   is_counted boolean,
@@ -526,8 +529,11 @@ as $$
     limit 1
   )
   select 
+    p.id,
     p.codigo,
     p.descricao,
+    p.localizacao,
+    p.quantidade_atual,
     p.quantidade_contada,
     p.scanned_qty,
     p.is_counted,
