@@ -590,6 +590,53 @@ as $$
   where id = p_session_id;
 $$;
 grant execute on function public.update_session_total(uuid) to authenticated;
+
+create or replace function public.delete_counting_session(p_session_id uuid)
+returns void
+language plpgsql
+security definer
+volatile
+set search_path = public
+as $$
+declare
+  v_emp bigint;
+  v_owner bigint;
+  v_role text;
+begin
+  select cs.id_empresa, cs.id_usuario into v_emp, v_owner
+  from public.counting_sessions cs
+  where cs.id = p_session_id;
+
+  if v_emp is null then
+    raise exception 'Sessão não encontrada';
+  end if;
+
+  select t.role into v_role
+  from public.user_tenants t
+  where t.auth_user_id = auth.uid()
+    and t.id_empresa = v_emp
+  limit 1;
+
+  if v_role is null then
+    raise exception 'Permissão negada';
+  end if;
+
+  if v_role <> 'admin' then
+    perform 1
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.id_usuario = v_owner
+      and t.id_empresa = v_emp;
+    if not found then
+      raise exception 'Permissão negada';
+    end if;
+  end if;
+
+  delete from public.products where session_id = p_session_id;
+  delete from public.counting_sessions where id = p_session_id;
+end;
+$$;
+grant execute on function public.delete_counting_session(uuid) to authenticated;
 create or replace function public.create_counting_session(
   p_id_usuario bigint,
   p_id_empresa bigint,

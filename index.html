@@ -4808,7 +4808,10 @@
                     .delete()
                     .eq('id', sessionId);
 
-                if (error) throw error;
+                if (error) {
+                    const { error: rpcErr } = await supabaseClient.rpc('delete_counting_session', { p_session_id: sessionId });
+                    if (rpcErr) throw rpcErr;
+                }
 
                 showToast('Sessão excluída com sucesso!', 'success');
                 loadCountingSessions();
