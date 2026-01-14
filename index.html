@@ -5850,7 +5850,9 @@
                 if (error) {
                     console.error('Erro ao carregar produtos:', error);
                     const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
-                        p_session_id: productsFilters.session_id || null
+                        p_session_id: productsFilters.session_id || null,
+                        p_search: productsFilters.search || null,
+                        p_is_counted: productsFilters.is_counted === '' ? null : (productsFilters.is_counted === 'true')
                     });
                     if (rpcErr) {
                         showToast('Erro ao carregar produtos: ' + error.message, 'error');

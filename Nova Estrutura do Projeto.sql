@@ -502,7 +502,11 @@ as $$
 $$;
 grant execute on function public.get_counting_sessions_for_current_user() to authenticated;
 
-create or replace function public.get_products_for_empresa(p_session_id uuid default null)
+create or replace function public.get_products_for_empresa(
+  p_session_id uuid default null,
+  p_search text default null,
+  p_is_counted boolean default null
+)
 returns table (
   id uuid,
   codigo text,
@@ -545,9 +549,13 @@ as $$
   join public.counting_sessions cs on cs.id = p.session_id
   join me on me.id_empresa = cs.id_empresa
   where (p_session_id is null or p.session_id = p_session_id)
+    and (p_search is null 
+         or p.codigo ilike '%' || p_search || '%' 
+         or p.descricao ilike '%' || p_search || '%')
+    and (p_is_counted is null or p.is_counted = p_is_counted)
   order by p.created_at desc
 $$;
-grant execute on function public.get_products_for_empresa(uuid) to authenticated;
+grant execute on function public.get_products_for_empresa(uuid, text, boolean) to authenticated;
 
 create or replace function public.insert_products_for_session(
   p_session_id uuid,
