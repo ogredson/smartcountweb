@@ -6387,80 +6387,64 @@
          let totalStatistics = 0;
          let currentStatisticsSort = { field: 'codigo', direction: 'asc' };
 
-         // Carregar estatísticas
-         async function loadStatistics() {
-             try {
-                if (!supabaseClient) {
-                    showToast('Conexão com banco de dados indisponível', 'error');
-                    return;
-                }
-                if (!currentEmpresa) {
-                    showToast('Empresa não definida no contexto', 'error');
-                    return;
-                }
+        // Carregar estatísticas
+        async function loadStatistics() {
+            try {
+               if (!supabaseClient) {
+                   showToast('Conexão com banco de dados indisponível', 'error');
+                   return;
+               }
+               if (!currentEmpresa) {
+                   showToast('Empresa não definida no contexto', 'error');
+                   return;
+               }
 
-                // Construir query base com join para obter dados das sessões
-                let query = supabaseClient
-                    .from('products')
-                    .select(`
-                        *,
-                       counting_sessions!inner(session_name, id_usuario, id_empresa)
-                    `, { count: 'exact' });
+               const isCountedParam = statisticsFilters.status === 'counted' ? true
+                                     : statisticsFilters.status === 'not-counted' ? false
+                                     : null;
 
-                 // Aplicar filtros
-                 if (statisticsFilters.session_id) {
-                     query = query.eq('session_id', statisticsFilters.session_id);
-                 }
+               const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
+                   p_session_id: statisticsFilters.session_id || null,
+                   p_search: null,
+                   p_is_counted: isCountedParam
+               });
+               if (rpcErr) {
+                   console.error('Erro ao carregar estatísticas:', rpcErr);
+                   showToast('Erro ao carregar estatísticas: ' + rpcErr.message, 'error');
+                   return;
+               }
+               let productsAdapted = (productsRpc || []).map(p => ({
+                   ...p,
+                   counting_sessions: { session_name: p.counting_session_name }
+               }));
 
-                 if (statisticsFilters.status === 'counted') {
-                     query = query.eq('is_counted', true);
-                 } else if (statisticsFilters.status === 'not-counted') {
-                     query = query.eq('is_counted', false);
-                 } else if (statisticsFilters.status === 'variance') {
-                     query = query.neq('expected_qty', 'quantidade_contada');
-                 }
+               if (statisticsFilters.status === 'variance') {
+                   productsAdapted = productsAdapted.filter(p => (p.quantidade_contada || 0) !== (p.expected_qty || 0));
+               }
 
-                 // Aplicar ordenação
-                 query = query.order(currentStatisticsSort.field, { ascending: currentStatisticsSort.direction === 'asc' });
+               // Ordenação
+               const dir = currentStatisticsSort.direction === 'asc' ? 1 : -1;
+               productsAdapted.sort((a, b) => {
+                   const fa = a[currentStatisticsSort.field] ?? '';
+                   const fb = b[currentStatisticsSort.field] ?? '';
+                   return fa > fb ? dir : fa < fb ? -dir : 0;
+               });
 
-                 // Aplicar paginação
-                 const from = (currentStatisticsPage - 1) * statisticsPerPage;
-                 const to = from + statisticsPerPage - 1;
-                 query = query.range(from, to);
+               // Paginação
+               totalStatistics = productsAdapted.length;
+               const from = (currentStatisticsPage - 1) * statisticsPerPage;
+               const to = from + statisticsPerPage;
+               const pageSlice = productsAdapted.slice(from, to);
 
-                query = query.eq('counting_sessions.id_empresa', currentEmpresa.id);
-                const { data: products, error, count } = await query;
+               displayStatistics(pageSlice);
+               updateStatisticsPagination();
+               updateStatisticsSummary(productsAdapted);
 
-                if (error) {
-                    const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
-                        p_session_id: statisticsFilters.session_id || null
-                    });
-                    if (rpcErr) {
-                        console.error('Erro ao carregar estatísticas:', error);
-                        showToast('Erro ao carregar estatísticas: ' + error.message, 'error');
-                        return;
-                    }
-                    const productsAdapted = (productsRpc || []).map(p => ({
-                        ...p,
-                        counting_sessions: { session_name: p.counting_session_name }
-                    }));
-                    totalStatistics = productsAdapted.length;
-                    displayStatistics(productsAdapted);
-                    updateStatisticsPagination();
-                    updateStatisticsSummary(productsAdapted);
-                    return;
-                }
-
-                 totalStatistics = count || 0;
-                 displayStatistics(products || []);
-                 updateStatisticsPagination();
-                 updateStatisticsSummary(products || []);
-
-             } catch (error) {
-                 console.error('Erro ao carregar estatísticas:', error);
-                 showToast('Erro ao carregar estatísticas', 'error');
-             }
-         }
+            } catch (error) {
+                console.error('Erro ao carregar estatísticas:', error);
+                showToast('Erro ao carregar estatísticas', 'error');
+            }
+        }
 
          // Exibir estatísticas na tabela
          function displayStatistics(products) {
