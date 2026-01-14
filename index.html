@@ -5849,7 +5849,7 @@
 
                 if (error) {
                     console.error('Erro ao carregar produtos:', error);
-                    const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
+                    const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('search_products_for_empresa', {
                         p_session_id: productsFilters.session_id || null,
                         p_search: productsFilters.search || null,
                         p_is_counted: productsFilters.is_counted === '' ? null : (productsFilters.is_counted === 'true')
@@ -6403,7 +6403,7 @@
                                      : statisticsFilters.status === 'not-counted' ? false
                                      : null;
 
-               const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('get_products_for_empresa', {
+               const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('search_products_for_empresa', {
                    p_session_id: statisticsFilters.session_id || null,
                    p_search: null,
                    p_is_counted: isCountedParam
