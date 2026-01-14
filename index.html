@@ -3228,12 +3228,16 @@
 
                          if (!confirm(`Alterar status para "${statusText}"?`)) return;
 
-                const { error } = await supabaseClient
-                    .from('counting_sessions')
-                    .update({ status: newStatus })
-                    .eq('id', sessionId);
+                let { error } = await supabaseClient
+                    .rpc('update_session_status', { p_session_id: sessionId, p_new_status: newStatus });
 
-                         if (error) throw error;
+                if (error) {
+                    const { error: fallbackError } = await supabaseClient
+                        .from('counting_sessions')
+                        .update({ status: newStatus })
+                        .eq('id', sessionId);
+                    if (fallbackError) throw fallbackError;
+                }
 
                          showToast(`Status alterado para "${statusText}"!`, 'success');
                          loadCountingSessions();
