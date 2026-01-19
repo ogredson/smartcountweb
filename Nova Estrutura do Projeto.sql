@@ -383,6 +383,7 @@ create table if not exists public.user_tenants (
   role text not null default 'user'
 );
 create unique index if not exists user_tenants_auth_user_id_idx on public.user_tenants(auth_user_id);
+alter table public.user_tenants disable row level security;
 grant select on table public.user_tenants to authenticated;
 
 -- Trigger to maintain user_tenants
