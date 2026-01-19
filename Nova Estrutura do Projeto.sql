@@ -1,4 +1,28 @@
-create table public.configuracao_estoque (
+﻿-- Limpeza TOTAL de policies antigas para evitar recursão
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Remove policies de usuarios
+    FOR r IN SELECT policyname FROM pg_policies WHERE tablename = 'usuarios' AND schemaname = 'public'
+    LOOP
+        EXECUTE 'DROP POLICY IF EXISTS "' || r.policyname || '" ON public.usuarios';
+    END LOOP;
+
+    -- Remove policies de counting_sessions
+    FOR r IN SELECT policyname FROM pg_policies WHERE tablename = 'counting_sessions' AND schemaname = 'public'
+    LOOP
+        EXECUTE 'DROP POLICY IF EXISTS "' || r.policyname || '" ON public.counting_sessions';
+    END LOOP;
+    
+    -- Remove policies de products
+    FOR r IN SELECT policyname FROM pg_policies WHERE tablename = 'products' AND schemaname = 'public'
+    LOOP
+        EXECUTE 'DROP POLICY IF EXISTS "' || r.policyname || '" ON public.products';
+    END LOOP;
+END $$;
+
+create table if not exists public.configuracao_estoque (
   id uuid not null default gen_random_uuid (),
   tipo_contagem_padrao text not null default 'normal'::text,
   tipo_importacao_padrao text not null default 'csv'::text,
@@ -42,12 +66,14 @@ create table public.configuracao_estoque (
 create index IF not exists idx_configuracao_estoque_tipo_contagem on public.configuracao_estoque using btree (tipo_contagem_padrao) TABLESPACE pg_default;
 
 create index IF not exists idx_configuracao_estoque_tipo_arquivo on public.configuracao_estoque using btree (tipo_importacao_padrao, tipo_exportacao_padrao) TABLESPACE pg_default;
+grant select, insert, update, delete on public.configuracao_estoque to authenticated;
 
+drop trigger if exists update_configuracao_estoque_updated_at on public.configuracao_estoque;
 create trigger update_configuracao_estoque_updated_at BEFORE
 update on configuracao_estoque for EACH row
 execute FUNCTION update_updated_at_column ();
 
-create table public.counting_sessions (
+create table if not exists public.counting_sessions (
   id uuid not null default gen_random_uuid (),
   session_name text not null,
   description text null,
@@ -87,11 +113,12 @@ create table public.counting_sessions (
 
 create index IF not exists idx_counting_sessions_status on public.counting_sessions using btree (status) TABLESPACE pg_default;
 
+drop trigger if exists update_counting_sessions_updated_at on public.counting_sessions;
 create trigger update_counting_sessions_updated_at BEFORE
 update on counting_sessions for EACH row
 execute FUNCTION update_updated_at_column ();
 
-create table public.empresas (
+create table if not exists public.empresas (
   id bigserial not null,
   nome character varying(255) not null,
   email character varying(255) null,
@@ -122,7 +149,7 @@ create table public.empresas (
   )
 ) TABLESPACE pg_default;
 
-create table public.products (
+create table if not exists public.products (
   id uuid not null default gen_random_uuid (),
   session_id uuid not null,
   codigo text not null,
@@ -144,11 +171,12 @@ create index IF not exists idx_products_session_id on public.products using btre
 
 create index IF not exists idx_products_codigo on public.products using btree (codigo) TABLESPACE pg_default;
 
+drop trigger if exists update_products_updated_at on public.products;
 create trigger update_products_updated_at BEFORE
 update on products for EACH row
 execute FUNCTION update_updated_at_column ();
 
-create table public.scans (
+create table if not exists public.scans (
   id uuid not null default gen_random_uuid (),
   session_id uuid not null,
   product_id uuid null,
@@ -174,38 +202,10 @@ create index IF not exists idx_scans_session_id on public.scans using btree (ses
 
 create index IF not exists idx_scans_product_id on public.scans using btree (product_id) TABLESPACE pg_default;
 
-create table public.empresas (
-  id bigserial not null,
-  nome character varying(255) not null,
-  email character varying(255) null,
-  endereco character varying(255) null,
-  cnpj character(14) null,
-  cpf character(11) null,
-  inscricao_estadual character varying(50) null,
-  tipo_pessoa character varying(20) null default 'J'::character varying,
-  numero integer null,
-  complemento character varying(100) null,
-  cep character varying(10) null,
-  uf character varying(2) null,
-  cidade character varying(100) null,
-  contatos character varying(200) null,
-  telefone character varying(20) null,
-  celular character varying(20) null,
-  website character varying(100) null,
-  senha text null,
-  mensagem text null,
-  import_limit smallint null default '1000'::smallint,
-  ativo boolean null default true,
-  constraint empresas_pkey primary key (id),
-  constraint empresas_email_key unique (email),
-  constraint empresas_tipo_pessoa_check check (
-    (
-      (tipo_pessoa)::text = any (array['F'::text, 'J'::text])
-    )
-  )
-) TABLESPACE pg_default;
+-- (Tabela empresas duplicada removida)
 
-create table public.usuarios (
+
+create table if not exists public.usuarios (
   id bigserial not null,
   nome character varying(100) not null,
   email character varying(100) not null,
@@ -238,15 +238,23 @@ set search_path = public
 as $$
   select exists (
     select 1
-    from public.usuarios u
-    where u.auth_user_id = auth.uid()
-      and u.role = 'admin'
-      and u.id_empresa = target_id_empresa
+    from public.user_tenants
+    where auth_user_id = auth.uid()
+      and role = 'admin'
+      and id_empresa = target_id_empresa
   );
 $$;
 grant execute on function public.is_admin_for_empresa(bigint) to authenticated;
 
 drop policy if exists usuarios_select_admin_company on public.usuarios;
+create policy usuarios_select_admin_company on public.usuarios for select using (
+  exists (
+    select 1 from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+      and t.role = 'admin'
+      and t.id_empresa = public.usuarios.id_empresa
+  )
+);
 grant usage on schema public to authenticated;
 grant select on table public.usuarios to authenticated;
 
@@ -377,6 +385,32 @@ create table if not exists public.user_tenants (
 create unique index if not exists user_tenants_auth_user_id_idx on public.user_tenants(auth_user_id);
 grant select on table public.user_tenants to authenticated;
 
+-- Trigger to maintain user_tenants
+create or replace function public.sync_user_tenants()
+returns trigger
+language plpgsql
+security definer
+as $$
+begin
+  if TG_OP = 'INSERT' or TG_OP = 'UPDATE' then
+    insert into public.user_tenants (auth_user_id, id_usuario, id_empresa, role)
+    values (new.auth_user_id, new.id, new.id_empresa, coalesce(new.role, 'user'))
+    on conflict (auth_user_id) do update
+    set id_usuario = excluded.id_usuario,
+        id_empresa = excluded.id_empresa,
+        role = excluded.role;
+  elsif TG_OP = 'DELETE' then
+    delete from public.user_tenants where auth_user_id = old.auth_user_id;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists sync_user_tenants_trigger on public.usuarios;
+create trigger sync_user_tenants_trigger
+after insert or update or delete on public.usuarios
+for each row execute function public.sync_user_tenants();
+
 -- Backfill mapping from usuarios (execute once after deployment)
 insert into public.user_tenants(auth_user_id, id_usuario, id_empresa, role)
 select u.auth_user_id, u.id, u.id_empresa, u.role
@@ -438,6 +472,7 @@ using (
   )
 );
 
+drop policy if exists counting_sessions_delete_owner_or_admin on public.counting_sessions;
 create policy counting_sessions_delete_owner_or_admin on public.counting_sessions
 for delete
 using (
@@ -700,7 +735,7 @@ begin
   where p.id = p_product_id;
 
   if v_session is null then
-    raise exception 'Produto não encontrado';
+    raise exception 'Produto nÃ£o encontrado';
   end if;
 
   select cs.id_empresa, cs.id_usuario into v_emp, v_owner
@@ -714,7 +749,7 @@ begin
   limit 1;
 
   if v_role is null then
-    raise exception 'Permissão negada';
+    raise exception 'PermissÃ£o negada';
   end if;
 
   if v_role <> 'admin' then
@@ -724,7 +759,7 @@ begin
       and t.id_usuario = v_owner
       and t.id_empresa = v_emp;
     if not found then
-      raise exception 'Permissão negada';
+      raise exception 'PermissÃ£o negada';
     end if;
   end if;
 
@@ -779,7 +814,7 @@ begin
   where cs.id = p_session_id;
 
   if v_emp is null then
-    raise exception 'Sessão não encontrada';
+    raise exception 'SessÃ£o nÃ£o encontrada';
   end if;
 
   select t.role into v_role
@@ -789,7 +824,7 @@ begin
   limit 1;
 
   if v_role is null then
-    raise exception 'Permissão negada';
+    raise exception 'PermissÃ£o negada';
   end if;
 
   if v_role <> 'admin' then
@@ -799,7 +834,7 @@ begin
       and t.id_usuario = v_owner
       and t.id_empresa = v_emp;
     if not found then
-      raise exception 'Permissão negada';
+      raise exception 'PermissÃ£o negada';
     end if;
   end if;
 
@@ -858,7 +893,7 @@ begin
   where cs.id = p_session_id;
 
   if v_emp is null then
-    raise exception 'Sessão não encontrada';
+    raise exception 'SessÃ£o nÃ£o encontrada';
   end if;
 
   select t.role into v_role
@@ -868,11 +903,11 @@ begin
   limit 1;
 
   if v_role is null then
-    raise exception 'Permissão negada';
+    raise exception 'PermissÃ£o negada';
   end if;
 
   if p_new_status not in ('waiting','active','completed','cancelled') then
-    raise exception 'Status inválido';
+    raise exception 'Status invÃ¡lido';
   end if;
 
   if v_role <> 'admin' then
@@ -882,7 +917,7 @@ begin
       and t.id_usuario = v_owner
       and t.id_empresa = v_emp;
     if not found then
-      raise exception 'Permissão negada';
+      raise exception 'PermissÃ£o negada';
     end if;
   end if;
 
@@ -917,7 +952,7 @@ begin
   where cs.id = p_session_id;
 
   if v_emp is null then
-    raise exception 'Sessão não encontrada';
+    raise exception 'SessÃ£o nÃ£o encontrada';
   end if;
 
   select t.role into v_role
@@ -927,7 +962,7 @@ begin
   limit 1;
 
   if v_role is null then
-    raise exception 'Permissão negada';
+    raise exception 'PermissÃ£o negada';
   end if;
 
   if v_role <> 'admin' then
@@ -937,7 +972,7 @@ begin
       and t.id_usuario = v_owner
       and t.id_empresa = v_emp;
     if not found then
-      raise exception 'Permissão negada';
+      raise exception 'PermissÃ£o negada';
     end if;
   end if;
 
@@ -973,7 +1008,7 @@ begin
   where cs.id = p_session_id;
 
   if v_emp is null then
-    raise exception 'Sessão não encontrada';
+    raise exception 'SessÃ£o nÃ£o encontrada';
   end if;
 
   select t.role into v_role
@@ -983,7 +1018,7 @@ begin
   limit 1;
 
   if v_role is null then
-    raise exception 'Permissão negada';
+    raise exception 'PermissÃ£o negada';
   end if;
 
   if v_role <> 'admin' then
@@ -993,7 +1028,7 @@ begin
       and t.id_usuario = v_owner
       and t.id_empresa = v_emp;
     if not found then
-      raise exception 'Permissão negada';
+      raise exception 'PermissÃ£o negada';
     end if;
   end if;
 
@@ -1052,3 +1087,4 @@ as $$
   order by p.created_at desc
 $$;
 grant execute on function public.search_products_for_empresa(uuid, text, boolean) to authenticated;
+
