@@ -2330,6 +2330,32 @@
                 min-width: 800px;
             }
         }
+        /* Badge Styles */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            line-height: 1;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: baseline;
+            border-radius: 0.25rem;
+            color: #fff;
+        }
+        .badge-success {
+            background-color: var(--success);
+            color: white;
+        }
+        .badge-warning {
+            background-color: var(--warning);
+            color: #212529;
+        }
+        .badge-danger {
+            background-color: var(--danger);
+            color: white;
+        }
+
     </style>
 </head>
 <body>
@@ -3151,6 +3177,48 @@
 
         <!-- Toast Container -->
         <div class="toast-container" id="toast-container"></div>
+    </div>
+
+    <!-- Sidebar para Auditoria de Scans -->
+    <div id="scan-audit-sidebar" class="sidebar-overlay">
+        <div class="sidebar-content">
+            <div class="sidebar-header">
+                <h3><i class="fas fa-barcode"></i> Auditoria de Scans</h3>
+                <button id="close-audit-sidebar-btn" class="close-btn" onclick="closeAuditSidebar()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="sidebar-body" style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
+                <div id="scan-audit-product-info" style="padding: 1rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0;">
+                    <!-- Info do produto será inserida aqui via JS -->
+                    <div class="skeleton-line" style="width: 60%; height: 20px; margin-bottom: 8px;"></div>
+                    <div class="skeleton-line" style="width: 40%; height: 16px;"></div>
+                </div>
+                
+                <div class="table-container" style="flex-grow: 1; overflow-y: auto; padding: 0;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-primary); z-index: 1;">
+                            <tr>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid var(--border);">Data/Hora</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid var(--border);">Código Lido</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid var(--border);">Qtd</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid var(--border);">Tipo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan-audit-table-body">
+                            <!-- Rows serão inseridas aqui via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer" style="flex-shrink: 0;">
+                <button type="button" onclick="closeAuditSidebar()" class="btn btn-secondary" style="width: 100%;">
+                    Fechar
+                </button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -6025,9 +6093,130 @@
          }
 
          // Ações dos produtos
-         function viewProduct(productId) {
-             showToast('Funcionalidade de visualização em desenvolvimento', 'info');
-         }
+         // Função para visualizar auditoria de scans do produto
+        async function viewProduct(productId) {
+            const sidebar = document.getElementById('scan-audit-sidebar');
+            const tbody = document.getElementById('scan-audit-table-body');
+            const infoDiv = document.getElementById('scan-audit-product-info');
+            
+            if (!sidebar || !tbody || !infoDiv) {
+                console.error('Elementos da sidebar de auditoria não encontrados');
+                return;
+            }
+
+            // Encontrar o produto na lista local
+            let product = products.find(p => p.id === productId);
+            
+            if (!product) {
+                 // Tentar buscar do banco se não achar localmente (fallback)
+                 try {
+                     const { data, error } = await supabaseClient
+                        .from('products')
+                        .select('*')
+                        .eq('id', productId)
+                        .single();
+                     if (error) throw error;
+                     product = data;
+                 } catch(e) {
+                     showToast('Produto não encontrado', 'error');
+                     return;
+                 }
+            }
+
+            // Preencher info básica do produto
+            const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+            infoDiv.innerHTML = `
+                <h4 style="margin: 0 0 8px 0; color: var(--text-primary);">${esc(product.descricao)}</h4>
+                <div style="font-size: 0.9em; color: var(--text-secondary);">
+                    <strong>Código:</strong> ${esc(product.codigo)} <br>
+                    <strong>Localização:</strong> ${esc(product.localizacao || '-')} <br>
+                    <strong>Total Contado:</strong> ${product.quantidade_contada || 0}
+                </div>
+            `;
+
+            // Limpar tabela e mostrar loading
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="4" class="text-center" style="padding: 2rem;">
+                        <i class="fas fa-spinner fa-spin"></i> Carregando scans...
+                    </td>
+                </tr>
+            `;
+
+            // Abrir sidebar
+            sidebar.classList.add('active');
+
+            try {
+                // Buscar scans do servidor
+                const { data: scans, error } = await supabaseClient
+                    .from('scans')
+                    .select('*')
+                    .eq('product_id', productId)
+                    .order('scanned_at', { ascending: false });
+
+                if (error) throw error;
+
+                if (!scans || scans.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="4" class="text-center" style="padding: 2rem; color: var(--text-secondary);">
+                                <i class="fas fa-info-circle"></i> Nenhum registro de scan encontrado.
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                // Renderizar scans
+                tbody.innerHTML = scans.map(scan => {
+                    const date = new Date(scan.scanned_at);
+                    const dateStr = date.toLocaleDateString('pt-BR');
+                    const timeStr = date.toLocaleTimeString('pt-BR');
+                    
+                    const typeIcon = scan.scan_type === 'manual' 
+                        ? '<i class="fas fa-keyboard" title="Manual"></i>' 
+                        : '<i class="fas fa-barcode" title="Código de Barras"></i>';
+
+                    return `
+                        <tr>
+                            <td style="padding: 12px; border-bottom: 1px solid var(--border);">
+                                <div style="font-size: 0.9em;">${dateStr}</div>
+                                <div style="font-size: 0.8em; color: var(--text-secondary);">${timeStr}</div>
+                            </td>
+                            <td style="padding: 12px; border-bottom: 1px solid var(--border);">
+                                ${esc(scan.code)}
+                            </td>
+                            <td style="padding: 12px; text-align: center; border-bottom: 1px solid var(--border);">
+                                <span class="badge ${scan.quantity > 0 ? 'badge-success' : 'badge-danger'}">
+                                    ${scan.quantity > 0 ? '+' : ''}${scan.quantity}
+                                </span>
+                            </td>
+                            <td style="padding: 12px; text-align: center; border-bottom: 1px solid var(--border); color: var(--text-secondary);">
+                                ${typeIcon}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+            } catch (err) {
+                console.error('Erro ao carregar scans:', err);
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="text-center text-danger" style="padding: 2rem;">
+                            Erro ao carregar dados: ${esc(err.message)}
+                        </td>
+                    </tr>
+                `;
+                showToast('Erro ao carregar histórico de scans', 'error');
+            }
+        }
+
+        function closeAuditSidebar() {
+            const sidebar = document.getElementById('scan-audit-sidebar');
+            if (sidebar) {
+                sidebar.classList.remove('active');
+            }
+        }
 
          function editProduct(productId) {
              showToast('Funcionalidade de edição em desenvolvimento', 'info');

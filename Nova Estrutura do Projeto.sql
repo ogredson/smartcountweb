@@ -662,6 +662,42 @@ as $$
     and t.id_empresa = cs.id_empresa;
 $$;
 grant execute on function public.update_session_file_info(uuid, text, text) to authenticated;
+
+create or replace function public.insert_scan(
+  p_session_id uuid,
+  p_code text,
+  p_quantity integer,
+  p_description text
+)
+returns public.scans
+language sql
+security definer
+volatile
+set search_path = public
+as $$
+  with me as (
+    select t.id_empresa, t.id_usuario, t.role
+    from public.user_tenants t
+    where t.auth_user_id = auth.uid()
+    limit 1
+  ),
+  sess as (
+    select cs.id, cs.id_empresa, cs.id_usuario
+    from public.counting_sessions cs
+    join me on me.id_empresa = cs.id_empresa
+    where cs.id = p_session_id
+    limit 1
+  ),
+  ins as (
+    insert into public.scans (session_id, code, quantity, description)
+    select p_session_id, p_code, coalesce(p_quantity, 1), nullif(p_description,'')
+    from sess
+    returning *
+  )
+  select * from ins;
+$$;
+grant execute on function public.insert_scan(uuid, text, integer, text) to authenticated;
+
 alter table public.products enable row level security;
 drop policy if exists products_select_company on public.products;
 create policy products_select_company on public.products
