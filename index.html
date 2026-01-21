@@ -6507,16 +6507,22 @@
                    .limit(1)
                    .single();
 
+                // Determine file extension and type based on config
+                const fileType = config?.tipo_exportacao_padrao || 'csv';
+                const fileExtension = fileType === 'txt' ? '.txt' : '.csv';
+                const mimeType = fileType === 'txt' ? 'text/plain' : 'text/csv';
+                const typeDescription = fileType === 'txt' ? 'Arquivos de Texto' : 'Arquivos CSV';
+
                  // Gerar CSV com base nas configurações
                  const csvContent = generateCountingCSV(session, countedProducts, config);
                  
-                 // Criar nome do arquivo: Contagem-nome_da_sessao-data.csv
+                 // Criar nome do arquivo: Contagem-nome_da_sessao-data.extension
                  const sessionName = (session.session_name || 'Sessao').replace(/[^a-zA-Z0-9]/g, '_');
                  const date = new Date().toISOString().split('T')[0];
-                 const filename = `Contagem-${sessionName}-${date}.csv`;
+                 const filename = `Contagem-${sessionName}-${date}${fileExtension}`;
 
                  // Criar e baixar o arquivo com seletor de pasta
-                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                 const blob = new Blob([csvContent], { type: `${mimeType};charset=utf-8;` });
                  
                  // Verificar se o navegador suporta File System Access API
                  if ('showSaveFilePicker' in window) {
@@ -6524,8 +6530,8 @@
                          const fileHandle = await window.showSaveFilePicker({
                              suggestedName: filename,
                              types: [{
-                                 description: 'Arquivos CSV',
-                                 accept: { 'text/csv': ['.csv'] }
+                                 description: typeDescription,
+                                 accept: { [mimeType]: [fileExtension] }
                              }]
                          });
                          const writable = await fileHandle.createWritable();
