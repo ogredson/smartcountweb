@@ -4305,6 +4305,7 @@
                  // Add scan record
                  const scanData = {
                      session_id: currentSession.id,
+                     product_id: product?.id, // Ensure link to product
                      codigo: barcode,
                      descricao: product?.descricao || 'Produto não identificado',
                      quantidade: quantity,
