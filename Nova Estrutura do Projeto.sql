@@ -1,4 +1,4 @@
-﻿-- Limpeza TOTAL de policies antigas para evitar recursão
+-- Limpeza TOTAL de policies antigas para evitar recursão
 DO $$
 DECLARE
     r RECORD;
@@ -36,6 +36,8 @@ create table if not exists public.configuracao_estoque (
   exportacao_incluir_quantidade boolean not null default true,
   exportacao_incluir_descricao boolean not null default false,
   exportacao_incluir_localizacao boolean not null default false,
+  gerar_cabecalho character varying null default 'S'::character varying,
+  separador_campos character varying null default ','::character varying,
   created_at timestamp with time zone null default now(),
   updated_at timestamp with time zone null default now(),
   id_empresa bigint null,

@@ -2783,6 +2783,31 @@
                                             </select>
                                         </div>
 
+                                        <!-- Opções de Formatação de Exportação -->
+                                        <div class="form-group">
+                                            <label class="form-label">
+                                                <i class="fas fa-sliders-h"></i> Opções de Formatação
+                                            </label>
+                                            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                                <div style="flex: 1; min-width: 200px;">
+                                                    <label for="gerar-cabecalho" class="form-label" style="font-size: 0.9em; margin-bottom: 0.5rem;">Gerar Cabeçalho</label>
+                                                    <select id="gerar-cabecalho" name="gerar_cabecalho" class="form-select">
+                                                        <option value="S">Sim</option>
+                                                        <option value="N">Não</option>
+                                                    </select>
+                                                </div>
+                                                <div style="flex: 1; min-width: 200px;">
+                                                    <label for="separador-campos" class="form-label" style="font-size: 0.9em; margin-bottom: 0.5rem;">Separador de Campos</label>
+                                                    <select id="separador-campos" name="separador_campos" class="form-select">
+                                                        <option value=",">Vírgula (,)</option>
+                                                        <option value=";">Ponto e Vírgula (;)</option>
+                                                        <option value="|">Pipe (|)</option>
+                                                        <option value="TAB">Tabulação (TAB)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <!-- Botões de Ação -->
                                         <div class="form-actions">
                                             <button type="submit" class="btn btn-primary">
@@ -5733,6 +5758,8 @@
              document.getElementById('tipo-exportacao-padrao').value = config.tipo_exportacao_padrao || 'csv';
              document.getElementById('exportacao-descricao').checked = config.exportacao_incluir_descricao || false;
              document.getElementById('exportacao-localizacao').checked = config.exportacao_incluir_localizacao || false;
+             document.getElementById('gerar-cabecalho').value = config.gerar_cabecalho || 'S';
+             document.getElementById('separador-campos').value = config.separador_campos || ',';
          }
 
          // Função para salvar configurações de contagens
@@ -5763,7 +5790,9 @@
                  exportacao_incluir_codigo: true, // Sempre true
                  exportacao_incluir_quantidade: true, // Sempre true
                  exportacao_incluir_descricao: formData.has('exportacao_incluir_descricao'),
-                 exportacao_incluir_localizacao: formData.has('exportacao_incluir_localizacao')
+                 exportacao_incluir_localizacao: formData.has('exportacao_incluir_localizacao'),
+                 gerar_cabecalho: formData.get('gerar_cabecalho'),
+                 separador_campos: formData.get('separador_campos')
              };
 
              await saveConfiguration(configData, 'message-exportacoes');
@@ -5857,6 +5886,8 @@
              document.getElementById('tipo-exportacao-padrao').value = 'csv';
              document.getElementById('exportacao-descricao').checked = false;
              document.getElementById('exportacao-localizacao').checked = false;
+             document.getElementById('gerar-cabecalho').value = 'S';
+             document.getElementById('separador-campos').value = ',';
              
              const messageElement = document.getElementById('message-exportacoes');
              messageElement.style.display = 'none';
@@ -6419,17 +6450,27 @@
                  exportacao_incluir_codigo: true, // Sempre incluído
                  exportacao_incluir_quantidade: true, // Sempre incluído (quantidade_contada)
                  exportacao_incluir_descricao: config?.exportacao_incluir_descricao || false,
-                 exportacao_incluir_localizacao: config?.exportacao_incluir_localizacao || false
+                 exportacao_incluir_localizacao: config?.exportacao_incluir_localizacao || false,
+                 gerar_cabecalho: config?.gerar_cabecalho || 'S',
+                 separador_campos: config?.separador_campos || ','
              };
 
-             // Construir cabeçalho do CSV baseado nas configurações
-             let headers = [];
-             if (exportConfig.exportacao_incluir_codigo) headers.push('codigo');
-             if (exportConfig.exportacao_incluir_quantidade) headers.push('quantidade_contada');
-             if (exportConfig.exportacao_incluir_descricao) headers.push('descricao');
-             if (exportConfig.exportacao_incluir_localizacao) headers.push('localizacao');
+             // Definir separador real
+             let separator = exportConfig.separador_campos;
+             if (separator === 'TAB') separator = '\t';
 
-             let csv = headers.join(',') + '\n';
+             let csv = '';
+
+             // Construir cabeçalho do CSV baseado nas configurações
+             if (exportConfig.gerar_cabecalho === 'S') {
+                 let headers = [];
+                 if (exportConfig.exportacao_incluir_codigo) headers.push('codigo');
+                 if (exportConfig.exportacao_incluir_quantidade) headers.push('quantidade_contada');
+                 if (exportConfig.exportacao_incluir_descricao) headers.push('descricao');
+                 if (exportConfig.exportacao_incluir_localizacao) headers.push('localizacao');
+                 
+                 csv += headers.join(separator) + '\n';
+             }
 
              // Processar produtos contados
              if (countedProducts && countedProducts.length > 0) {
@@ -6454,7 +6495,7 @@
                          row.push(`"${product.localizacao || ''}"`); 
                      }
                      
-                     csv += row.join(',') + '\n';
+                     csv += row.join(separator) + '\n';
                  });
              }
 
