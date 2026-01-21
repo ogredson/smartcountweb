@@ -6683,6 +6683,172 @@
             }
         }
 
+        // Função para exportar estatísticas em CSV/TXT
+        async function exportStatisticsCSV() {
+            try {
+                if (!supabaseClient) {
+                    showToast('Conexão com banco de dados indisponível', 'error');
+                    return;
+                }
+
+                showToast('Gerando arquivo de exportação...', 'info');
+
+                // Carregar configurações de exportação da empresa
+                const { data: config } = await supabaseClient
+                    .from('configuracao_estoque')
+                    .select('*')
+                    .eq('id_empresa', currentEmpresa.id)
+                    .limit(1)
+                    .single();
+
+                // Construir query e filtrar dados (mesma lógica do loadStatistics mas sem paginação)
+                const isCountedParam = statisticsFilters.status === 'counted' ? true
+                                     : statisticsFilters.status === 'not-counted' ? false
+                                     : null;
+
+                const { data: productsRpc, error: rpcErr } = await supabaseClient.rpc('search_products_for_empresa', {
+                    p_session_id: statisticsFilters.session_id || null,
+                    p_search: null,
+                    p_is_counted: isCountedParam
+                });
+                
+                if (rpcErr) throw rpcErr;
+                
+                let productsAdapted = (productsRpc || []).map(p => ({
+                    ...p,
+                    counting_sessions: { session_name: p.counting_session_name }
+                }));
+
+                if (statisticsFilters.status === 'variance') {
+                    productsAdapted = productsAdapted.filter(p => (p.quantidade_contada || 0) !== (p.expected_qty || 0));
+                }
+
+                // Ordenação atual
+                const dir = currentStatisticsSort.direction === 'asc' ? 1 : -1;
+                productsAdapted.sort((a, b) => {
+                    const fa = a[currentStatisticsSort.field] ?? '';
+                    const fb = b[currentStatisticsSort.field] ?? '';
+                    return fa > fb ? dir : fa < fb ? -dir : 0;
+                });
+
+                if (!productsAdapted || productsAdapted.length === 0) {
+                    showToast('Nenhum dado para exportar.', 'warning');
+                    return;
+                }
+
+                // Configurações de exportação
+                const exportConfig = {
+                    exportacao_incluir_codigo: true,
+                    exportacao_incluir_quantidade: true,
+                    exportacao_incluir_descricao: config?.exportacao_incluir_descricao || false,
+                    exportacao_incluir_localizacao: config?.exportacao_incluir_localizacao || false,
+                    gerar_cabecalho: config?.gerar_cabecalho || 'S',
+                    separador_campos: config?.separador_campos || ',',
+                    tipo_exportacao_padrao: config?.tipo_exportacao_padrao || 'csv'
+                };
+
+                // Definir separador e extensão
+                let separator = exportConfig.separador_campos;
+                if (separator === 'TAB') separator = '\t';
+                
+                const fileExtension = exportConfig.tipo_exportacao_padrao === 'txt' ? '.txt' : '.csv';
+                const mimeType = exportConfig.tipo_exportacao_padrao === 'txt' ? 'text/plain' : 'text/csv';
+                
+                let csvContent = '';
+
+                // Gerar cabeçalho
+                if (exportConfig.gerar_cabecalho === 'S') {
+                    let headers = [];
+                    if (exportConfig.exportacao_incluir_codigo) headers.push('Código');
+                    if (exportConfig.exportacao_incluir_descricao) headers.push('Descrição');
+                    headers.push('Sessão');
+                    headers.push('Qtd. Esperada');
+                    if (exportConfig.exportacao_incluir_quantidade) headers.push('Qtd. Contada');
+                    headers.push('Qtd. Bipada');
+                    headers.push('Diferença');
+                    headers.push('Diferença %');
+                    headers.push('Status');
+                    if (exportConfig.exportacao_incluir_localizacao) headers.push('Localização');
+                    headers.push('Data');
+                    
+                    csvContent += headers.join(separator) + '\n';
+                }
+
+                // Gerar linhas
+                productsAdapted.forEach(p => {
+                    let row = [];
+                    const sessionName = p.counting_sessions?.session_name || 'N/A';
+                    const status = p.is_counted ? 'Contado' : 'Pendente';
+                    const date = new Date(p.created_at).toLocaleDateString('pt-BR');
+                    
+                    const expectedQty = p.expected_qty || 0;
+                    const countedQty = p.quantidade_contada || 0;
+                    const scannedQty = p.scanned_qty || 0;
+                    const variance = countedQty - expectedQty;
+                    const variancePercent = expectedQty > 0 ? ((variance / expectedQty) * 100).toFixed(2) : '0.00';
+
+                    if (exportConfig.exportacao_incluir_codigo) row.push(p.codigo || '');
+                    if (exportConfig.exportacao_incluir_descricao) row.push(`"${p.descricao || ''}"`);
+                    row.push(`"${sessionName}"`);
+                    row.push(expectedQty);
+                    if (exportConfig.exportacao_incluir_quantidade) row.push(countedQty);
+                    row.push(scannedQty);
+                    row.push(variance);
+                    row.push(variancePercent + '%');
+                    row.push(status);
+                    if (exportConfig.exportacao_incluir_localizacao) row.push(`"${p.localizacao || ''}"`);
+                    row.push(date);
+
+                    csvContent += row.join(separator) + '\n';
+                });
+
+                // Download do arquivo
+                const dateStr = new Date().toISOString().split('T')[0];
+                const filename = `Estatisticas-${dateStr}${fileExtension}`;
+                const blob = new Blob([csvContent], { type: `${mimeType};charset=utf-8;` });
+
+                if ('showSaveFilePicker' in window) {
+                    try {
+                        const fileHandle = await window.showSaveFilePicker({
+                            suggestedName: filename,
+                            types: [{
+                                description: exportConfig.tipo_exportacao_padrao === 'txt' ? 'Arquivos de Texto' : 'Arquivos CSV',
+                                accept: { [mimeType]: [fileExtension] }
+                            }]
+                        });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                        showToast('Arquivo exportado com sucesso!', 'success');
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            console.error('Erro ao salvar arquivo:', err);
+                            // Fallback
+                            downloadFileFallback(blob, filename);
+                        }
+                    }
+                } else {
+                    downloadFileFallback(blob, filename);
+                }
+
+            } catch (error) {
+                console.error('Erro ao exportar estatísticas:', error);
+                showToast('Erro ao exportar estatísticas: ' + error.message, 'error');
+            }
+        }
+
+        function downloadFileFallback(blob, filename) {
+             const link = document.createElement('a');
+             const url = URL.createObjectURL(blob);
+             link.setAttribute('href', url);
+             link.setAttribute('download', filename);
+             link.style.visibility = 'hidden';
+             document.body.appendChild(link);
+             link.click();
+             document.body.removeChild(link);
+             showToast('Arquivo baixado com sucesso!', 'success');
+        }
+
          // Exibir estatísticas na tabela
          function displayStatistics(products) {
              const tbody = document.getElementById('statistics-table-body');
@@ -6831,6 +6997,7 @@
              const statusFilter = document.getElementById('statistics-status-filter');
              const clearFiltersBtn = document.getElementById('clear-statistics-filters-btn');
              const refreshBtn = document.getElementById('refresh-statistics-btn');
+             const exportBtn = document.getElementById('export-statistics-btn');
 
              if (sessionFilter) {
                  sessionFilter.addEventListener('change', (e) => {
@@ -6861,6 +7028,12 @@
              if (refreshBtn) {
                  refreshBtn.addEventListener('click', () => {
                      loadStatistics();
+                 });
+             }
+             
+             if (exportBtn) {
+                 exportBtn.addEventListener('click', () => {
+                     exportStatisticsCSV();
                  });
              }
 
