@@ -6990,10 +6990,17 @@
             }
         }
 
-         // Event listeners para estatísticas
-         function setupStatisticsEventListeners() {
-             // Filtros
-             const sessionFilter = document.getElementById('statistics-session-filter');
+         // Flag para controlar listeners
+        let statisticsEventListenersSet = false;
+
+        // Event listeners para estatísticas
+        function setupStatisticsEventListeners() {
+            if (statisticsEventListenersSet) return;
+
+            statisticsEventListenersSet = true;
+
+            // Filtros
+            const sessionFilter = document.getElementById('statistics-session-filter');
              const statusFilter = document.getElementById('statistics-status-filter');
              const clearFiltersBtn = document.getElementById('clear-statistics-filters-btn');
              const refreshBtn = document.getElementById('refresh-statistics-btn');
