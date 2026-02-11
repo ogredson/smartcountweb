@@ -2805,6 +2805,7 @@
                                             <option value="active">Ativas</option>
                                             <option value="completed">Concluídas</option>
                                             <option value="waiting">Aguardando</option>
+                                            <option value="cancelled">Canceladas</option>
                                         </select>
                                     </div>
                                     <div class="filter-group">
@@ -4443,13 +4444,18 @@
                                  <i class="fas fa-eye"></i> Ver
                              </button>
                              ${session.status === 'completed' ? `
-                                 <button class="btn btn-sm btn-outline" onclick="exportSessionData('${session.id}')">
-                                     <i class="fas fa-download"></i> Exportar
-                                 </button>
-                                 <button class="btn btn-sm btn-danger" onclick="deleteSession('${session.id}')">
-                                     <i class="fas fa-trash"></i>
-                                 </button>
-                             ` : ''}
+                                <button class="btn btn-sm btn-outline" onclick="exportSessionData('${session.id}')">
+                                    <i class="fas fa-download"></i> Exportar
+                                </button>
+                            ` : session.status === 'active' ? `
+                                <button class="btn btn-sm btn-outline" onclick="cancelSession('${session.id}')">
+                                    <i class="fas fa-ban"></i> Cancelar
+                                </button>
+                            ` : session.status === 'waiting' ? `
+                                <button class="btn btn-sm btn-danger" onclick="deleteSession('${session.id}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            ` : ''}
                          </div>
                      </div>
                  `).join('');
@@ -4487,14 +4493,14 @@
 
          // Função getStatusText no escopo global
          function getStatusText(status) {
-             const statusMap = {
-                 'active': 'Ativa',
-                 'completed': 'Concluída',
-                 'paused': 'Pausada',
-                 'waiting': 'Aguardando'
-             };
-             return statusMap[status] || status;
-         }
+            const statusMap = {
+                'waiting': 'Aguardando',
+                'active': 'Ativa',
+                'completed': 'Concluída',
+                'cancelled': 'Cancelada'
+            };
+            return statusMap[status] || status;
+        }
 
          // Função renderSessionsTable no escopo global
          function renderSessionsTable() {
@@ -4559,20 +4565,27 @@
                          </td>
                          <td>
                              <div class="action-buttons">
-                                 <button class="action-btn upload" onclick="uploadSessionFile('${session.id}')" title="Subir Arquivo">
+                                 <button class="action-btn upload" onclick="uploadSessionFile('${session.id}')" title="${session.arquivo_uploaded ? 'Subir Arquivo (atual: ' + esc(session.arquivo_uploaded) + ')' : 'Subir Arquivo'}">
                                      <i class="fas fa-upload"></i>
                                  </button>
-                                 <button class="action-btn download" onclick="downloadSessionCSV('${session.id}')" title="Baixar Arquivo">
+                                 <button class="action-btn download" onclick="downloadSessionCSV('${session.id}')" title="${session.arquivo_downloaded ? 'Baixar Arquivo (último: ' + esc(session.arquivo_downloaded) + ')' : 'Baixar Arquivo'}">
                                      <i class="fas fa-download"></i>
                                  </button>
+                                 ${session.arquivo_downloaded ? `<span class="status-badge counted" title="Último arquivo baixado: ${esc(session.arquivo_downloaded)}" style="margin-left: 6px;">Baixado</span>` : ''}
                                  ${session.status === 'waiting' || session.status === 'active' ? `
                                  <button class="action-btn status" onclick="changeSessionStatus('${session.id}', '${session.status}')" title="${session.status === 'waiting' ? 'Iniciar Contagem' : 'Finalizar Contagem'}">
                                      <i class="fas fa-${session.status === 'waiting' ? 'play' : 'check'}"></i>
                                  </button>` : ''}
 
-                                 <button class="action-btn delete" onclick="deleteSession('${session.id}')" title="Excluir">
-                                     <i class="fas fa-trash"></i>
-                                 </button>
+                                 ${session.status === 'waiting' ? `
+                                <button class="action-btn delete" onclick="deleteSession('${session.id}')" title="Excluir">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                ` : session.status === 'active' ? `
+                                <button class="action-btn status" onclick="cancelSession('${session.id}')" title="Cancelar">
+                                    <i class="fas fa-ban"></i>
+                                </button>
+                                ` : ''}
                              </div>
                          </td>
                      </tr>
@@ -4799,13 +4812,17 @@
 
         // Funções globais para ações do grid
         async function deleteSession(sessionId) {
-            if (!confirm('Tem certeza que deseja excluir esta sessão? Esta ação não pode ser desfeita.')) {
-                return;
-            }
-
             try {
                 const target = allCountingSessions.find(s => s.id === sessionId);
-                if (target && currentUser && currentUser.role !== 'admin' && target.id_usuario !== currentUser.id) {
+                if (!target) { showToast('Sessão não encontrada', 'error'); return; }
+                if (target.status !== 'waiting') {
+                    showToast('Apenas sessões em Aguardando podem ser excluídas', 'warning');
+                    return;
+                }
+                if (!confirm('Tem certeza que deseja excluir esta sessão? Esta ação não pode ser desfeita.')) {
+                    return;
+                }
+                if (currentUser && currentUser.role !== 'admin' && target.id_usuario !== currentUser.id) {
                     showToast('Você não tem permissão para excluir esta sessão', 'error');
                     return;
                 }
@@ -4813,18 +4830,40 @@
                     .from('counting_sessions')
                     .delete()
                     .eq('id', sessionId);
-
                 if (error) {
                     const { error: rpcErr } = await supabaseClient.rpc('delete_counting_session', { p_session_id: sessionId });
                     if (rpcErr) throw rpcErr;
                 }
-
                 showToast('Sessão excluída com sucesso!', 'success');
                 loadCountingSessions();
-
             } catch (error) {
                 console.error('Erro ao excluir sessão:', error);
                 showToast('Erro ao excluir sessão', 'error');
+            }
+        }
+
+        async function cancelSession(sessionId) {
+            try {
+                const target = allCountingSessions.find(s => s.id === sessionId);
+                if (!target) { showToast('Sessão não encontrada', 'error'); return; }
+                if (target.status !== 'active') {
+                    showToast('Apenas sessões Ativas podem ser canceladas', 'warning');
+                    return;
+                }
+                if (!confirm('Tem certeza que deseja cancelar esta sessão?')) { return; }
+                let { error } = await supabaseClient.rpc('update_session_status', { p_session_id: sessionId, p_new_status: 'cancelled' });
+                if (error) {
+                    const { error: updErr } = await supabaseClient
+                        .from('counting_sessions')
+                        .update({ status: 'cancelled' })
+                        .eq('id', sessionId);
+                    if (updErr) throw updErr;
+                }
+                showToast('Sessão cancelada com sucesso!', 'success');
+                loadCountingSessions();
+            } catch (error) {
+                console.error('Erro ao cancelar sessão:', error);
+                showToast('Erro ao cancelar sessão', 'error');
             }
         }
 
@@ -6328,6 +6367,7 @@
 
                  // Criar e baixar o arquivo com seletor de pasta
                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                 let didDownload = false;
                  
                  // Verificar se o navegador suporta File System Access API
                  if ('showSaveFilePicker' in window) {
@@ -6342,6 +6382,7 @@
                          const writable = await fileHandle.createWritable();
                          await writable.write(blob);
                          await writable.close();
+                         didDownload = true;
                      } catch (err) {
                          if (err.name !== 'AbortError') {
                              console.error('Erro ao salvar arquivo:', err);
@@ -6354,6 +6395,7 @@
                              document.body.appendChild(link);
                              link.click();
                              document.body.removeChild(link);
+                             didDownload = true;
                          }
                      }
                  } else {
@@ -6366,9 +6408,13 @@
                      document.body.appendChild(link);
                      link.click();
                      document.body.removeChild(link);
+                     didDownload = true;
                  }
 
-                 showToast('Arquivo CSV baixado com sucesso!', 'success');
+                 if (didDownload) {
+                     await supabaseClient.from('counting_sessions').update({ arquivo_downloaded: filename }).eq('id', sessionId);
+                     showToast('Arquivo CSV baixado com sucesso!', 'success');
+                 }
              } catch (error) {
                  console.error('Erro ao baixar CSV:', error);
                  showToast('Erro ao baixar arquivo CSV', 'error');

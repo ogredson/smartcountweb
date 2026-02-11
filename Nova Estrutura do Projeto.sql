@@ -89,6 +89,7 @@ create table if not exists public.counting_sessions (
   arquivo_uploaded text null,
   id_usuario bigint null,
   id_empresa bigint null,
+  arquivo_downloaded text null,  
   constraint counting_sessions_pkey primary key (id),
   constraint counting_sessions_id_empresa_fkey foreign KEY (id_empresa) references empresas (id),
   constraint counting_sessions_id_usuario_id_empresa_fkey foreign KEY (id_usuario, id_empresa) references usuarios (id, id_empresa),
