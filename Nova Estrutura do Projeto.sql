@@ -22,7 +22,11 @@ BEGIN
     END LOOP;
 END $$;
 
-create table if not exists public.configuracao_estoque (
+
+
+
+
+create table public.configuracao_estoque (
   id uuid not null default gen_random_uuid (),
   tipo_contagem_padrao text not null default 'normal'::text,
   tipo_importacao_padrao text not null default 'csv'::text,
@@ -36,11 +40,16 @@ create table if not exists public.configuracao_estoque (
   exportacao_incluir_quantidade boolean not null default true,
   exportacao_incluir_descricao boolean not null default false,
   exportacao_incluir_localizacao boolean not null default false,
-  gerar_cabecalho character varying null default 'S'::character varying,
-  separador_campos character varying null default ','::character varying,
   created_at timestamp with time zone null default now(),
   updated_at timestamp with time zone null default now(),
   id_empresa bigint null,
+  exportacao_gerar_cabecalho character varying null default 'S'::character varying,
+  exportacao_separador_campos character varying null default ','::character varying,
+  importacao_ler_cabecalho character varying null default 'N'::character varying,
+  importacao_separador_campo character varying null default ','::character varying,
+  bipagem_codigo_alternativo character varying null default 'N'::character varying,
+  importacao_incluir_codigo_alternativo boolean null default false,
+  exportacao_incluir_codigo_alternativo boolean null default false,
   constraint configuracao_estoque_pkey primary key (id),
   constraint configuracao_estoque_id_empresa_fkey foreign KEY (id_empresa) references empresas (id),
   constraint configuracao_estoque_tipo_contagem_padrao_check check (
@@ -68,9 +77,7 @@ create table if not exists public.configuracao_estoque (
 create index IF not exists idx_configuracao_estoque_tipo_contagem on public.configuracao_estoque using btree (tipo_contagem_padrao) TABLESPACE pg_default;
 
 create index IF not exists idx_configuracao_estoque_tipo_arquivo on public.configuracao_estoque using btree (tipo_importacao_padrao, tipo_exportacao_padrao) TABLESPACE pg_default;
-grant select, insert, update, delete on public.configuracao_estoque to authenticated;
 
-drop trigger if exists update_configuracao_estoque_updated_at on public.configuracao_estoque;
 create trigger update_configuracao_estoque_updated_at BEFORE
 update on configuracao_estoque for EACH row
 execute FUNCTION update_updated_at_column ();
@@ -97,7 +104,7 @@ create table if not exists public.counting_sessions (
   constraint counting_sessions_id_usuario_id_empresa_fkey foreign KEY (id_usuario, id_empresa) references usuarios (id, id_empresa),
   constraint counting_sessions_count_type_check check (
     (
-      count_type = any (array['normal'::text, 'avulsa'::text])
+      array['normal'::text, 'avulsa'::text, 'balanco'::text]
     )
   ),
   constraint counting_sessions_status_check check (
@@ -162,6 +169,7 @@ create table if not exists public.products (
   is_counted boolean null default false,
   scanned_qty integer null default 0,
   expected_qty integer null default 0,
+  codigo_alternativo text null,
   created_at timestamp with time zone null default now(),
   updated_at timestamp with time zone null default now(),
   localizacao text null,
@@ -549,6 +557,7 @@ create or replace function public.get_products_for_empresa(
 returns table (
   id uuid,
   codigo text,
+  codigo_alternativo text,  
   descricao text,
   localizacao text,
   quantidade_atual integer,
@@ -574,6 +583,7 @@ as $$
   select 
     p.id,
     p.codigo,
+    p.codigo_alternativo,	
     p.descricao,
     p.localizacao,
     p.quantidade_atual,
@@ -594,6 +604,23 @@ as $$
     and (p_is_counted is null or p.is_counted = p_is_counted)
   order by p.created_at desc
 $$;
+
+-- Adicionar colunas caso a tabela já exista mas as colunas não (para updates incrementais)
+do $$
+begin
+    if not exists (select 1 from information_schema.columns where table_name = 'configuracao_estoque' and column_name = 'bipagem_codigo_alternativo') then
+        alter table public.configuracao_estoque add column bipagem_codigo_alternativo text default 'N';
+    end if;
+    if not exists (select 1 from information_schema.columns where table_name = 'configuracao_estoque' and column_name = 'importacao_incluir_codigo_alternativo') then
+        alter table public.configuracao_estoque add column importacao_incluir_codigo_alternativo boolean default false;
+    end if;
+    if not exists (select 1 from information_schema.columns where table_name = 'configuracao_estoque' and column_name = 'exportacao_incluir_codigo_alternativo') then
+        alter table public.configuracao_estoque add column exportacao_incluir_codigo_alternativo boolean default false;
+    end if;
+    if not exists (select 1 from information_schema.columns where table_name = 'products' and column_name = 'codigo_alternativo') then
+        alter table public.products add column codigo_alternativo text null;
+    end if;
+end $$;
 grant execute on function public.get_products_for_empresa(uuid, text, boolean) to authenticated;
 
 create or replace function public.insert_products_for_session(
@@ -829,7 +856,8 @@ as $$
     select cs.id
     from public.counting_sessions cs
     join me on me.id_empresa = cs.id_empresa
-    where me.role = 'admin' or cs.id_usuario = me.id_usuario
+    where (me.role = 'admin' or cs.id_usuario = me.id_usuario)
+    and cs.status in ('active', 'waiting')
   )
   select
     coalesce((select count(*) from public.products p where p.session_id in (select id from sessions)), 0) as total,
