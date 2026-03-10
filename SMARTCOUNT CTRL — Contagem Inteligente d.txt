@@ -1,0 +1,78 @@
+SMARTCOUNT CTRL — Contagem Inteligente de Estoque
+
+VISÃO GERAL
+- O SmartCount CTRL é um sistema de apoio à gestão de inventário que organiza a contagem de produtos por sessões, acelera a conferência, e entrega visibilidade em tempo real do andamento.
+- Focado em reduzir perdas e divergências, aumentar a acuracidade das contagens e otimizar o tempo de equipe.
+- Interface clara, com navegação por páginas (Dashboard, Contagens, Produtos, Estatísticas, Exportações, Histórico), filtros e indicadores práticos para tomada de decisão.
+
+PROPOSTA DE VALOR
+- Eficiência operacional: menos tempo de inventário, mais produtividade.
+- Precisão e controle: diminui erros de conferência e previne duplicidades.
+- Governança e rastreabilidade: histórico e trilhas de ação para auditoria.
+- Simplicidade de uso: fluxo intuitivo, com mensagens e ações guiadas.
+- Escalabilidade: atende diferentes lojas, áreas e períodos com sessões separadas.
+
+O QUE O SISTEMA FAZ
+- Organiza a contagem por sessões (por loja, setor ou período).
+- Importa listas de produtos a partir de planilhas (CSV/TXT) e valida duplicidades.
+- Registra contagem por produto (inclui leitura de código de barras) e atualiza progresso.
+- Fornece consulta detalhada de produtos com filtros e paginação.
+- Mostra indicadores gerenciais (total, contados, itens bipados, progresso).
+- Gera relatórios e exportações agrupadas ou detalhadas para compartilhamento e integração.
+- Mantém histórico das sessões com status e estatísticas para análise e auditoria.
+- Oferece acesso por login e perfis (admin/usuário), com diferenciação de permissões.
+
+PRINCIPAIS MÓDULOS E BENEFÍCIOS
+
+1) Dashboard
+- O que faz: visão geral da operação de contagem com números-chave (total de produtos, produtos contados, itens bipados, progresso).
+- Benefícios: tomada de decisão rápida; foco em resultados e produtividade diária; acompanhamento em tempo real.
+
+2) Gestão de Contagens (Sessões)
+- O que faz: cria e administra sessões de inventário, com status (aguardando, em andamento, finalizado/cancelado), filtros por usuário e busca por nome.
+- Benefícios: organização por loja/área/período; controle de andamento; alinhamento de equipe; redução de gargalos.
+
+3) Importação de Produtos
+- O que faz: importa listas de produtos a partir de planilhas e bloqueia reimportação do mesmo arquivo para evitar duplicidades.
+- Benefícios: confiabilidade dos dados; agilidade na preparação do inventário; prevenção de retrabalho e inconsistências.
+
+4) Bipagem (Leitura de Código de Barras)
+- O que faz: registra a contagem por código de barras, com quantidade e atualização automática das informações do produto e da sessão.
+- Benefícios: velocidade de execução; redução de erros humanos; maior acuracidade e fluidez da operação.
+
+5) Consulta de Produtos
+- O que faz: lista produtos com filtros por sessão e status (contado/não contado), busca por código/descrição, ordenação e paginação.
+- Benefícios: facilidade para localizar itens, revisar contagens e agir rapidamente onde há divergência; controle operacional contínuo.
+
+6) Estatísticas
+- O que faz: apresenta indicadores por produto, incluindo variações entre quantidade esperada e contada e precisão geral.
+- Benefícios: melhora contínua; identificação de desvios e causas; apoio a auditoria e compliance; base para planos de ação.
+
+7) Exportações
+- O que faz: gera arquivos para compartilhamento e integração em dois formatos de conteúdo: agrupado (por produto) e detalhado (por eventos de bipagem).
+- Benefícios: integração facilitada com sistemas de gestão e planilhas; comunicação entre áreas e fornecedores; documentação de resultados.
+
+8) Histórico de Sessões
+- O que faz: mantém registro das sessões realizadas, com tipo de contagem, data, status e estatísticas (total, contados, bipados).
+- Benefícios: rastreabilidade e transparência; suporte a auditorias; aprendizado para otimização de processos futuros.
+
+9) Acesso e Perfis
+- O que faz: login com perfis de acesso, diferenciação de permissões entre administradores e usuários.
+- Benefícios: segurança, governança e controle de quem faz o quê; alinhamento às políticas internas.
+
+10) Usabilidade e Experiência
+- O que faz: interface clara, mensagens de confirmação/erro, tema claro/escuro, ações rápidas e atalhos.
+- Benefícios: adoção rápida pela equipe; menos treinamentos; conforto visual; maior satisfação dos usuários.
+
+RESULTADOS ESPERADOS
+- Redução de divergências e perdas.
+- Inventários mais rápidos e confiáveis.
+- Visibilidade gerencial do progresso e da acuracidade.
+- Menos retrabalho, maior produtividade e padronização dos processos.
+
+CASOS DE USO TÍPICOS
+- Varejo, autopeças, centros de distribuição, e lojas que necessitam inventários frequentes e controle sob demanda.
+- Ambientes com grande volume de itens e necessidade de garantir acuracidade e velocidade.
+
+MENSAGEM FINAL
+- O SmartCount CTRL transforma a contagem de estoque em um processo organizado, rápido e confiável. Ao combinar simplicidade com indicadores gerenciais, entrega controle, produtividade e segurança — a base para decisões melhores e resultados consistentes.
